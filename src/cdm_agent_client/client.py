@@ -250,6 +250,38 @@ class CDMAgent:
         except CDMAgentError:
             return False
 
+    def has_query(self, *, client_id: str | None = None) -> bool:
+        """Return True if any validation query message is currently visible on the page.
+
+        CDMS surfaces query messages as rows containing text like "쿼리" or
+        field-level alert text.  This checks ``invalidRowLabels`` and
+        ``invalidCount`` from the active-page snapshot.
+        """
+        snap = self.inspect(client_id=client_id)
+        return snap.invalid_count > 0 or len(snap.invalid_row_labels) > 0
+
+    def check_result(
+        self,
+        expected: str,
+        *,
+        client_id: str | None = None,
+    ) -> str:
+        """Compare the current page state against a DVS expected result string.
+
+        Parameters
+        ----------
+        expected:
+            ``"Query"`` or ``"No Query"`` (case-insensitive, as written in DVS).
+
+        Returns
+        -------
+        ``"PASS"`` or ``"FAIL"``
+        """
+        snap = self.inspect(client_id=client_id)
+        query_present = snap.invalid_count > 0 or len(snap.invalid_row_labels) > 0
+        expects_query = expected.strip().lower() not in ("no query", "no_query", "nq")
+        return "PASS" if query_present == expects_query else "FAIL"
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
