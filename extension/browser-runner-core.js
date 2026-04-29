@@ -965,13 +965,11 @@
     if (!url) {
       throw new Error("navigateToUrl requires a url.");
     }
-
+    // Set location and return immediately — the frame will be removed as the page
+    // navigates, so any code after this line won't reliably execute.
+    // The service worker treats "Frame removed" as a navigation success.
     global.location.href = url;
-    await sleep(1200);
-    return {
-      action: "navigateToUrl",
-      url: global.location.href,
-    };
+    return { action: "navigateToUrl", url: url };
   }
 
   async function chooseModifyReason(reasonLabel) {

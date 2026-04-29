@@ -206,12 +206,18 @@ function connectDaemon() {
           });
         })
         .catch(error => {
-          lastSnapshot = { error: error.message || String(error), timestamp: new Date().toISOString() };
-        sendToDaemon({
-          type: "tool_result",
-          requestId: message.requestId,
-          payload: { outcome: "failed", failureReason: error.message || String(error) },
-        });
+          const msg = error.message || String(error);
+          // "Frame with ID 0 was removed" means the page navigated away — that IS
+          // the expected outcome for goBack / navigateToUrl / clickSaveNext actions.
+          const isFrameRemoved = msg.includes("Frame with ID") && msg.includes("removed");
+          lastSnapshot = { error: msg, timestamp: new Date().toISOString() };
+          sendToDaemon({
+            type: "tool_result",
+            requestId: message.requestId,
+            payload: isFrameRemoved
+              ? { outcome: "passed", failureReason: null }
+              : { outcome: "failed", failureReason: msg },
+          });
         });
     }
   };
