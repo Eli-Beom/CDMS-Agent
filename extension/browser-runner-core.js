@@ -1120,6 +1120,9 @@
         return selectRadio(step.rowLabel, step.optionLabel);
       case "clickButtonExact":
         return clickButtonExactByLabel(step.buttonLabel);
+      case "goBack":
+        global.history.back();
+        return { action: "goBack" };
       case "navigateToUrl":
         return navigateToUrl(step.url);
       case "clickSave":

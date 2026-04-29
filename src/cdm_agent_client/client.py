@@ -229,6 +229,48 @@ class CDMAgent:
     # Lower-level helpers (useful from scripts/notebooks)
     # ------------------------------------------------------------------
 
+    def go_back(self, *, client_id: str | None = None) -> StepResult:
+        """Navigate to the previous page using browser history (history.back()).
+
+        Equivalent to clicking the browser Back button.
+        """
+        case = {
+            "id": f"py:{uuid.uuid4()}",
+            "studyId": self.study_id or "unknown",
+            "source": "python_client",
+            "kind": "positive_navigation",
+            "title": "Go back",
+            "preconditions": [],
+            "steps": [{"action": "goBack"}],
+            "expected": {"navigation": {"shouldMove": True}},
+        }
+        return self._run_case(case, client_id=client_id)
+
+    def navigate_to(self, url: str, *, client_id: str | None = None) -> StepResult:
+        """Navigate the browser directly to *url*.
+
+        Useful for jumping to a specific CRF page whose URL you already know
+        (e.g. from a previous ``inspect()`` snapshot).
+
+        Parameters
+        ----------
+        url:
+            Full URL **or** pathname.  If a pathname is given (starts with
+            ``/``), it is resolved against the daemon's base URL automatically
+            by the runner.
+        """
+        case = {
+            "id": f"py:{uuid.uuid4()}",
+            "studyId": self.study_id or "unknown",
+            "source": "python_client",
+            "kind": "positive_navigation",
+            "title": f"Navigate to {url}",
+            "preconditions": [],
+            "steps": [{"action": "navigateToUrl", "url": url}],
+            "expected": {"navigation": {"shouldMove": True}},
+        }
+        return self._run_case(case, client_id=client_id)
+
     def run_case(self, case_payload: dict[str, Any], *, client_id: str | None = None) -> StepResult:
         """Send an arbitrary TestCase payload to the daemon and execute it.
 
