@@ -1062,10 +1062,13 @@
       if (navigation.nextPathContains && after.pathname.indexOf(navigation.nextPathContains) >= 0) {
         return { outcome: "passed" };
       }
-
+      // No specific path required — just verify the URL actually changed
+      if (!navigation.nextPathContains && before.pathname !== after.pathname) {
+        return { outcome: "passed" };
+      }
       return {
         outcome: "failed",
-        failureReason: "Expected navigation to " + navigation.nextPathContains + " but stayed on " + after.pathname,
+        failureReason: "Expected navigation to " + (navigation.nextPathContains || "new page") + " but stayed on " + after.pathname,
       };
     }
 
