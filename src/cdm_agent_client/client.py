@@ -229,6 +229,39 @@ class CDMAgent:
     # Lower-level helpers (useful from scripts/notebooks)
     # ------------------------------------------------------------------
 
+    def go_to_page(
+        self,
+        page_id: str,
+        *,
+        page_num: int = 1,
+        client_id: str | None = None,
+    ) -> StepResult:
+        """Navigate to a CRF page by its page ID, staying on the same subject/visit.
+
+        Reads the current pathname from an ``inspect()`` snapshot, swaps the
+        page segment, and navigates there directly — no URL typing required.
+
+        Parameters
+        ----------
+        page_id:
+            CRF page code, e.g. ``"DM"``, ``"VS"``, ``"PE"``, ``"SV"``.
+        page_num:
+            Page instance number (almost always ``1``).
+
+        Examples
+        --------
+        >>> agent.go_to_page("DM")   # Demographics
+        >>> agent.go_to_page("VS")   # Vital sign
+        """
+        snap = self.inspect(client_id=client_id)
+        if not snap.pathname:
+            raise CDMAgentError("Cannot resolve current pathname from snapshot.")
+        # Pathname: /s/{study}/subjects/{subject}/NV/{visit}/{visitNum}/{pageId}/{pageNum}
+        parts = snap.pathname.rstrip("/").split("/")
+        parts[-2] = page_id
+        parts[-1] = str(page_num)
+        return self.navigate_to("/".join(parts), client_id=client_id)
+
     def go_back(self, *, client_id: str | None = None) -> StepResult:
         """Navigate to the previous page using browser history (history.back()).
 
