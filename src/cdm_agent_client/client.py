@@ -201,6 +201,28 @@ class CDMAgent:
         }
         return self._run_case(case, client_id=client_id)
 
+    def click_save(
+        self,
+        *,
+        client_id: str | None = None,
+        page_id: str | None = None,
+        visit_id: str | None = None,
+    ) -> StepResult:
+        """Click the Save button (pages that have Save only, not Save & Next)."""
+        case = {
+            "id": f"py:{uuid.uuid4()}",
+            "studyId": self.study_id or "unknown",
+            "source": "python_client",
+            "kind": "status_expected",
+            "title": "Click Save",
+            "pageId": page_id,
+            "visitId": visit_id,
+            "preconditions": [],
+            "steps": [{"action": "clickSave"}],
+            "expected": {},
+        }
+        return self._run_case(case, client_id=client_id)
+
     def click_save_next(
         self,
         *,
