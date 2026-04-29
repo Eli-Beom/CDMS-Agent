@@ -144,10 +144,25 @@
     });
   }
 
+  function isNavNode(node) {
+    return !!(node.closest && (
+      node.closest("[role='navigation']") ||
+      node.closest("nav") ||
+      node.closest(".ms-Nav") ||
+      node.closest(".ms-Nav-compositeLink") ||
+      node.closest(".cr-nav-wrapped")
+    ));
+  }
+
   function findRow(rowLabel) {
-    var labelNode = visibleTextNodes().find(function(node) {
+    // Prefer form-content nodes; fall back to any visible node if nothing found
+    var allMatches = visibleTextNodes().filter(function(node) {
       return textOf(node) === rowLabel;
     });
+
+    var labelNode = allMatches.find(function(node) {
+      return !isNavNode(node);
+    }) || allMatches[0];
 
     if (!labelNode) {
       throw new Error("Row label not found: " + rowLabel);
