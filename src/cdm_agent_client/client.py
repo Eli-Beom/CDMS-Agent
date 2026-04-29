@@ -231,35 +231,49 @@ class CDMAgent:
 
     def go_to_page(
         self,
-        page_id: str,
+        segment: str,
         *,
-        page_num: int = 1,
         client_id: str | None = None,
     ) -> StepResult:
-        """Navigate to a CRF page by its page ID, staying on the same subject/visit.
+        """Navigate to a CRF page using a URL segment, staying on the same subject.
 
-        Reads the current pathname from an ``inspect()`` snapshot, swaps the
-        page segment, and navigates there directly — no URL typing required.
+        Reads the current pathname from an ``inspect()`` snapshot and replaces
+        only the segments you specify — no full URL needed.
 
         Parameters
         ----------
-        page_id:
-            CRF page code, e.g. ``"DM"``, ``"VS"``, ``"PE"``, ``"SV"``.
-        page_num:
-            Page instance number (almost always ``1``).
+        segment:
+            ``"DM"``        → change page only  (same visit)
+            ``"V2/DM"``     → change visit + page
+            ``"V2/DM/2"``   → change visit + page + page instance
 
         Examples
         --------
-        >>> agent.go_to_page("DM")   # Demographics
-        >>> agent.go_to_page("VS")   # Vital sign
+        >>> agent.go_to_page("DM")      # → .../NV/V1/1/DM/1
+        >>> agent.go_to_page("V2/DM")   # → .../NV/V2/1/DM/1
+        >>> agent.go_to_page("VS")      # → .../NV/V1/1/VS/1
         """
         snap = self.inspect(client_id=client_id)
         if not snap.pathname:
             raise CDMAgentError("Cannot resolve current pathname from snapshot.")
-        # Pathname: /s/{study}/subjects/{subject}/NV/{visit}/{visitNum}/{pageId}/{pageNum}
+
+        # Pathname: /s/{study}/subjects/{subject}/NV/{visitId}/{visitNum}/{pageId}/{pageNum}
+        # indices:   0  1       2         3         4   5         6         7        8  (after split)
         parts = snap.pathname.rstrip("/").split("/")
-        parts[-2] = page_id
-        parts[-1] = str(page_num)
+        tokens = segment.strip("/").split("/")
+
+        if len(tokens) == 1:
+            # "DM" → replace pageId, reset pageNum to 1
+            parts[-2], parts[-1] = tokens[0], "1"
+        elif len(tokens) == 2:
+            # "V2/DM" → replace visitId + pageId, reset both instance nums to 1
+            parts[-4], parts[-3] = tokens[0], "1"
+            parts[-2], parts[-1] = tokens[1], "1"
+        else:
+            # "V2/DM/2" → replace visitId + pageId + pageNum
+            parts[-4], parts[-3] = tokens[0], "1"
+            parts[-2], parts[-1] = tokens[1], tokens[2]
+
         return self.navigate_to("/".join(parts), client_id=client_id)
 
     def go_back(self, *, client_id: str | None = None) -> StepResult:
