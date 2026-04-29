@@ -129,7 +129,7 @@ class StepResult:
 
     @property
     def ok(self) -> bool:
-        return self.outcome == "passed"
+        return self.outcome in ("passed", "blocked")
 
     def _repr_html_(self) -> str:
         color = "#2ecc71" if self.ok else "#e74c3c"

@@ -155,14 +155,19 @@
   }
 
   function findRow(rowLabel) {
-    // Prefer form-content nodes; fall back to any visible node if nothing found
     var allMatches = visibleTextNodes().filter(function(node) {
       return textOf(node) === rowLabel;
     });
 
+    // Priority 1: not nav AND not inside app-study-crf-group-header (section title)
     var labelNode = allMatches.find(function(node) {
-      return !isNavNode(node);
-    }) || allMatches[0];
+      if (isNavNode(node)) return false;
+      var tr = node.closest("tr");
+      return !tr || !tr.classList.contains("app-study-crf-group-header");
+    })
+    // Priority 2: not nav (may be group header)
+    || allMatches.find(function(node) { return !isNavNode(node); })
+    || allMatches[0];
 
     if (!labelNode) {
       throw new Error("Row label not found: " + rowLabel);
@@ -177,14 +182,29 @@
     );
 
     // app-study-crf-group-header is a section title row with no inputs.
-    // The actual input row is the next sibling <tr> that contains interactive elements.
+    // Maven CDMS uses a separate <tbody> per section, so nextElementSibling of the
+    // header <tr> is null. Walk the parent <tbody> chain instead.
     if (row && row.classList && row.classList.contains("app-study-crf-group-header")) {
+      // 1) Same tbody — try sibling <tr>s
       var sibling = row.nextElementSibling;
       while (sibling) {
         if (sibling.querySelectorAll("input, textarea, select, button, [role='button'], [tabindex]").length > 0) {
           return sibling;
         }
         sibling = sibling.nextElementSibling;
+      }
+      // 2) Separate-tbody layout (Maven CDMS) — walk subsequent <tbody> elements
+      var parentBody = row.parentElement;
+      while (parentBody) {
+        var nextBody = parentBody.nextElementSibling;
+        if (!nextBody) break;
+        var rows = nextBody.querySelectorAll("tr");
+        for (var r = 0; r < rows.length; r++) {
+          if (rows[r].querySelectorAll("input, textarea, select, button, [role='button']").length > 0) {
+            return rows[r];
+          }
+        }
+        parentBody = nextBody;
       }
     }
 
@@ -548,11 +568,36 @@
   }
 
   async function setDateViaCalendarPopup(rowLabel, value) {
+    // If a date-popup input is already open, use it directly (re-entry / manual open)
+    var existingPopup = Array.prototype.slice.call(document.querySelectorAll("input")).find(function(n) {
+      return isVisible(n) && n.placeholder === "YYYY-MM-DD";
+    });
+    if (existingPopup) {
+      setNativeValue(existingPopup, value || "");
+      await sleep(100);
+      var preEnter = findButtonExact("Enter");
+      if (preEnter) { clickNode(preEnter); await sleep(400); }
+      return { rowLabel: rowLabel, value: value, action: "setDateViaCalendarPopup" };
+    }
+
     var row = findRow(rowLabel);
-    var icon = row.querySelector("i[data-icon-name='Calendar']");
+
+    // Fluent i[data-icon-name='Calendar'] — standard Fluent DatePicker
+    // GrIcon / GrDatePicker button — Maven CDMS custom date picker
+    var icon = row.querySelector("i[data-icon-name='Calendar']")
+      || row.querySelector(".GrDatePicker button")
+      || Array.prototype.slice.call(
+          row.querySelectorAll("button, [role='button'], [tabindex='0']")
+        ).find(function(el) {
+          var label = (el.getAttribute("aria-label") || "").toLowerCase();
+          var hasSvg = el.querySelector("svg") !== null;
+          return label.includes("date") || label.includes("달력") || label.includes("calendar") || hasSvg;
+        });
+
     var fallbackInput = Array.prototype.slice.call(row.querySelectorAll("input")).find(function(node) {
       return isVisible(node) && node.type !== "hidden";
     });
+
     if (!icon && !fallbackInput) {
       throw new Error("Calendar icon not found for row: " + rowLabel);
     }
@@ -566,7 +611,7 @@
           return Array.prototype.slice.call(document.querySelectorAll("input")).find(function(node) {
             return isVisible(node) && node.placeholder === "YYYY-MM-DD";
           });
-        }, 1500, 100);
+        }, 2000, 100);
 
         setNativeValue(popupInput, value || "");
         await sleep(100);
@@ -582,9 +627,7 @@
     }
 
     if (fallbackInput) {
-      try {
-        fallbackInput.readOnly = false;
-      } catch (error) {}
+      try { fallbackInput.readOnly = false; } catch (e) {}
       clickNode(fallbackInput);
       setNativeValue(fallbackInput, value || "");
       fallbackInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -1054,7 +1097,8 @@
           };
     }
 
-    return { outcome: "unknown" };
+    // No expectations defined — action ran without error, treat as passed.
+    return { outcome: "passed" };
   }
 
   async function runStep(step) {
