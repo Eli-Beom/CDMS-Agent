@@ -35,6 +35,10 @@ class CDMAgent:
         When ``True`` (default), steps that return outcome ``failed`` or
         ``blocked`` raise :class:`StepFailedError`.  Set to ``False`` to get
         the :class:`StepResult` back regardless.
+    runner:
+        Browser runner type registered with the daemon.  Chrome extension
+        clients register as ``"extension"`` (default).  Tampermonkey-based
+        clients register as ``"tm"``.
     """
 
     def __init__(
@@ -45,12 +49,14 @@ class CDMAgent:
         timeout: int = 30,
         run_timeout: int = 120,
         raise_on_failure: bool = True,
+        runner: str = "extension",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.study_id = study_id
         self.timeout = timeout
         self.run_timeout = run_timeout
         self.raise_on_failure = raise_on_failure
+        self.runner = runner
         self._session = requests.Session()
         self._session.headers["Content-Type"] = "application/json"
 
@@ -81,6 +87,9 @@ class CDMAgent:
 
         if not snap.connected:
             raise NoBrowserClientError()
+
+        if snap.error:
+            raise CDMAgentError(f"Runner error on page: {snap.error}")
 
         return snap
 
@@ -119,6 +128,77 @@ class CDMAgent:
             page_id=page_id,
             visit_id=visit_id,
         )
+        return self._run_case(case, client_id=client_id)
+
+    def set_text(
+        self,
+        row_label: str,
+        value: str,
+        *,
+        page_id: str | None = None,
+        visit_id: str | None = None,
+        client_id: str | None = None,
+    ) -> StepResult:
+        """Type a plain text or numeric value into a labelled field.
+
+        Use this for non-date fields (e.g. weight, subject ID).
+        For date fields with a calendar picker, use :meth:`set_date` instead.
+        """
+        case = self._build_set_text_case(
+            row_label=row_label,
+            value=value,
+            title=f"Set text: {row_label} = {value}",
+            page_id=page_id,
+            visit_id=visit_id,
+        )
+        return self._run_case(case, client_id=client_id)
+
+    def select_option(
+        self,
+        row_label: str,
+        option_label: str,
+        *,
+        page_id: str | None = None,
+        visit_id: str | None = None,
+        client_id: str | None = None,
+    ) -> StepResult:
+        """Select an option from a combobox / dropdown field."""
+        case = {
+            "id": f"py:{uuid.uuid4()}",
+            "studyId": self.study_id or "unknown",
+            "source": "python_client",
+            "kind": "status_expected",
+            "title": f"Select option: {row_label} = {option_label}",
+            "pageId": page_id,
+            "visitId": visit_id,
+            "preconditions": [],
+            "steps": [{"action": "selectComboboxOption", "rowLabel": row_label, "optionLabel": option_label}],
+            "expected": {},
+        }
+        return self._run_case(case, client_id=client_id)
+
+    def select_radio(
+        self,
+        row_label: str,
+        option_label: str,
+        *,
+        page_id: str | None = None,
+        visit_id: str | None = None,
+        client_id: str | None = None,
+    ) -> StepResult:
+        """Select a radio button option."""
+        case = {
+            "id": f"py:{uuid.uuid4()}",
+            "studyId": self.study_id or "unknown",
+            "source": "python_client",
+            "kind": "status_expected",
+            "title": f"Select radio: {row_label} = {option_label}",
+            "pageId": page_id,
+            "visitId": visit_id,
+            "preconditions": [],
+            "steps": [{"action": "selectRadio", "rowLabel": row_label, "optionLabel": option_label}],
+            "expected": {},
+        }
         return self._run_case(case, client_id=client_id)
 
     def click_save_next(
@@ -193,7 +273,36 @@ class CDMAgent:
             "preconditions": [],
             "steps": [
                 {
-                    "action": "set_field",
+                    # Runner action: setDateViaCalendarPopup handles calendar icon +
+                    # fallback direct input. Use setText for plain text/number fields.
+                    "action": "setDateViaCalendarPopup",
+                    "rowLabel": row_label,
+                    "value": value,
+                }
+            ],
+            "expected": {},
+        }
+
+    def _build_set_text_case(
+        self,
+        row_label: str,
+        value: str,
+        title: str,
+        page_id: str | None,
+        visit_id: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "id": f"py:{uuid.uuid4()}",
+            "studyId": self.study_id or "unknown",
+            "source": "python_client",
+            "kind": "status_expected",
+            "title": title,
+            "pageId": page_id,
+            "visitId": visit_id,
+            "preconditions": [],
+            "steps": [
+                {
+                    "action": "setText",
                     "rowLabel": row_label,
                     "value": value,
                 }
@@ -217,16 +326,16 @@ class CDMAgent:
             "preconditions": [],
             "steps": [
                 {
-                    "action": "click_save_next",
+                    "action": "clickSaveNext",
                 }
             ],
             "expected": {
-                "navigation": {"shouldNavigate": True},
+                "navigation": {"shouldMove": True},
             },
         }
 
     def _run_case(self, case_payload: dict[str, Any], *, client_id: str | None = None) -> StepResult:
-        body: dict[str, Any] = {"case_payload": case_payload}
+        body: dict[str, Any] = {"case_payload": case_payload, "runner": self.runner}
         if client_id:
             body["client_id"] = client_id
 
@@ -260,7 +369,7 @@ class CDMAgent:
         return resp.json()
 
     def __repr__(self) -> str:
-        return f"CDMAgent(base_url={self.base_url!r}, study_id={self.study_id!r})"
+        return f"CDMAgent(base_url={self.base_url!r}, study_id={self.study_id!r}, runner={self.runner!r})"
 
 
 def _raise_for_status(resp: requests.Response, path: str) -> None:

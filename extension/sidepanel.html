@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CDM Agent</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header class="panel__header">
+        <h1>CDM Agent</h1>
+        <p>Local-first CDMS validation bridge</p>
+      </header>
+
+      <section class="panel__section">
+        <label class="field">
+          <span>Daemon Origin</span>
+          <input id="daemonOrigin" type="text" value="http://127.0.0.1:3100" />
+        </label>
+        <button id="saveOrigin">Apply</button>
+      </section>
+
+      <section class="panel__section">
+        <div id="status" class="status status--idle">Disconnected</div>
+        <button id="refreshState">Refresh</button>
+        <button id="inspectPage">Inspect Active Page</button>
+      </section>
+
+      <section class="panel__section">
+        <h2>Last Snapshot</h2>
+        <pre id="snapshot"></pre>
+      </section>
+
+      <section class="panel__section">
+        <h2>Events</h2>
+        <pre id="events"></pre>
+      </section>
+    </main>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

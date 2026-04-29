@@ -5,9 +5,12 @@ from .exceptions import CDMAgentError, DaemonNotRunningError, NoBrowserClientErr
 from .models import PageSnapshot, StepResult
 
 __all__ = [
+    # Main client
     "CDMAgent",
+    # Models
     "PageSnapshot",
     "StepResult",
+    # Exceptions
     "CDMAgentError",
     "DaemonNotRunningError",
     "NoBrowserClientError",
