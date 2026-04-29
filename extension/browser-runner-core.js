@@ -168,13 +168,27 @@
       throw new Error("Row label not found: " + rowLabel);
     }
 
-    return (
+    var row = (
       labelNode.closest("tr") ||
       labelNode.parentElement.closest("tr") ||
       labelNode.closest(".item--wrapper") ||
       labelNode.closest(".cr-section") ||
       labelNode.parentElement
     );
+
+    // app-study-crf-group-header is a section title row with no inputs.
+    // The actual input row is the next sibling <tr> that contains interactive elements.
+    if (row && row.classList && row.classList.contains("app-study-crf-group-header")) {
+      var sibling = row.nextElementSibling;
+      while (sibling) {
+        if (sibling.querySelectorAll("input, textarea, select, button, [role='button'], [tabindex]").length > 0) {
+          return sibling;
+        }
+        sibling = sibling.nextElementSibling;
+      }
+    }
+
+    return row;
   }
 
   function findEditableInput(root) {
