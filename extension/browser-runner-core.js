@@ -548,6 +548,31 @@
     return inspectActivePage();
   }
 
+  function listNavPages() {
+    // Collect all sidebar navigation links and their URL segments
+    var links = Array.prototype.slice.call(
+      document.querySelectorAll("a[href], [role='link'], .ms-Nav-link, .cr-nav-wrapped a")
+    );
+    var seen = {};
+    var pages = [];
+    links.forEach(function(el) {
+      var href = el.getAttribute("href") || (el.tagName === "A" ? el.href : "");
+      if (!href || href === "#") return;
+      try {
+        var pathname = new URL(href, global.location.href).pathname;
+        // Match CRF page URLs: /s/{study}/subjects/{subject}/NV/{visit}/{n}/{pageId}/{n}
+        var m = pathname.match(/\/([A-Z0-9]+)\/(\d+)$/);
+        if (!m) return;
+        var pageId = m[1];
+        if (seen[pageId]) return;
+        seen[pageId] = true;
+        var label = normalize(el.innerText || el.textContent || pageId);
+        pages.push({ pageId: pageId, label: label, pathname: pathname });
+      } catch (e) {}
+    });
+    return { pages: pages, currentPathname: global.location.pathname };
+  }
+
   async function setText(rowLabel, value) {
     var row = findRow(rowLabel);
     var input = findEditableInput(row);
@@ -1264,6 +1289,7 @@
     assertPath: assertPath,
     collectValidationSignals: collectValidationSignals,
     capturePage: capturePage,
+    listNavPages: listNavPages,
     inspectActivePage: inspectActivePage,
     runCase: runCase,
     toggleDebugOverlay: toggleDebugOverlay,

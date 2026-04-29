@@ -348,6 +348,27 @@ class CDMAgent:
         """
         return self._run_case(case_payload, client_id=client_id)
 
+    def list_pages(self, *, client_id: str | None = None) -> list[dict[str, Any]]:
+        """Return the CRF pages available in the current visit sidebar.
+
+        Each item has ``pageId`` (URL segment, e.g. ``"DM"``), ``label``
+        (visible text, e.g. ``"Demographics"``), and ``pathname``.
+
+        Use this to discover page codes before calling ``go_to_page()``.
+
+        Example
+        -------
+        >>> for p in agent.list_pages():
+        ...     print(p["pageId"], p["label"])
+        DM  Demographics
+        VS  Vital sign
+        """
+        params: dict[str, str] = {}
+        if client_id:
+            params["clientId"] = client_id
+        data = self._get("/api/cdm-agent/nav-pages", params=params)
+        return data.get("pages") or []
+
     def clients(self) -> list[dict[str, Any]]:
         """Return the list of browser clients currently registered with the daemon."""
         data = self._get("/api/cdm-agent/browser/clients")

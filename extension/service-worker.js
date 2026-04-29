@@ -100,6 +100,10 @@ async function executeRunnerCommand(tabId, command, payload) {
         return runner.capturePage();
       }
 
+      if (runnerCommand === "list_nav_pages") {
+        return runner.listNavPages();
+      }
+
       if (runnerCommand === "run_case") {
         return runner.runCase((runnerPayload && runnerPayload.case) || {});
       }
