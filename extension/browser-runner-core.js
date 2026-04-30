@@ -549,27 +549,30 @@
   }
 
   function listNavPages() {
-    // Collect all sidebar navigation links and their URL segments
-    var links = Array.prototype.slice.call(
-      document.querySelectorAll("a[href], [role='link'], .ms-Nav-link, .cr-nav-wrapped a")
-    );
     var seen = {};
     var pages = [];
-    links.forEach(function(el) {
-      var href = el.getAttribute("href") || (el.tagName === "A" ? el.href : "");
-      if (!href || href === "#") return;
+
+    // Maven CDMS SPA renders nav items as <a href> via React Router.
+    // Collect ALL anchor elements regardless of class.
+    var allAnchors = Array.prototype.slice.call(document.querySelectorAll("a"));
+    allAnchors.forEach(function(el) {
+      var href = el.href || el.getAttribute("href") || "";
+      if (!href || href === "#" || href.indexOf("javascript") === 0) return;
       try {
         var pathname = new URL(href, global.location.href).pathname;
-        // Match CRF page URLs: /s/{study}/subjects/{subject}/NV/{visit}/{n}/{pageId}/{n}
-        var m = pathname.match(/\/([A-Z0-9]+)\/(\d+)$/);
+        // Match: /s/{study}/subjects/{subject}/{visitType}/{visitId}/{n}/{pageId}/{n}
+        var m = pathname.match(/\/subjects\/[^/]+\/[A-Z]+\/([A-Z0-9]+)\/\d+\/([A-Z0-9]+)\/\d+$/);
         if (!m) return;
-        var pageId = m[1];
-        if (seen[pageId]) return;
-        seen[pageId] = true;
+        var visitId = m[1];
+        var pageId = m[2];
+        var key = visitId + "/" + pageId;
+        if (seen[key]) return;
+        seen[key] = true;
         var label = normalize(el.innerText || el.textContent || pageId);
-        pages.push({ pageId: pageId, label: label, pathname: pathname });
+        pages.push({ pageId: pageId, visitId: visitId, label: label, pathname: pathname });
       } catch (e) {}
     });
+
     return { pages: pages, currentPathname: global.location.pathname };
   }
 
