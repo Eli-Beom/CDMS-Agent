@@ -100,6 +100,39 @@ class PageSnapshot:
 
 
 @dataclass
+class PageList:
+    """List of CRF pages from the sidebar, displayed as a table in Jupyter."""
+
+    pages: list[dict]
+
+    def _repr_html_(self) -> str:
+        if not self.pages:
+            return "<p><em>No pages found. Make sure you are on a CRF page.</em></p>"
+        rows = "".join(
+            f"<tr><td style='padding:4px 12px;font-weight:bold'>{p.get('pageId','')}</td>"
+            f"<td style='padding:4px 12px'>{p.get('label','')}</td></tr>"
+            for p in self.pages
+        )
+        return (
+            "<table style='border-collapse:collapse;font-family:sans-serif'>"
+            "<tr style='background:#f0f0f0'>"
+            "<th style='padding:4px 12px;text-align:left'>pageId</th>"
+            "<th style='padding:4px 12px;text-align:left'>Label</th>"
+            "</tr>"
+            f"{rows}</table>"
+        )
+
+    def __repr__(self) -> str:
+        return "\n".join(f"{p.get('pageId'):10} {p.get('label','')}" for p in self.pages)
+
+    def __iter__(self):
+        return iter(self.pages)
+
+    def __len__(self):
+        return len(self.pages)
+
+
+@dataclass
 class StepResult:
     """Result from a single browser step (run_case execution)."""
 

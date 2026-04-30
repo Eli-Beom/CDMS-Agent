@@ -6,7 +6,7 @@ from typing import Any
 import requests
 
 from .exceptions import CDMAgentError, DaemonNotRunningError, NoBrowserClientError, StepFailedError
-from .models import PageSnapshot, StepResult
+from .models import PageList, PageSnapshot, StepResult
 
 _DEFAULT_URL = "http://127.0.0.1:3100"
 
@@ -348,26 +348,21 @@ class CDMAgent:
         """
         return self._run_case(case_payload, client_id=client_id)
 
-    def list_pages(self, *, client_id: str | None = None) -> list[dict[str, Any]]:
+    def list_pages(self, *, client_id: str | None = None) -> "PageList":
         """Return the CRF pages available in the current visit sidebar.
 
-        Each item has ``pageId`` (URL segment, e.g. ``"DM"``), ``label``
-        (visible text, e.g. ``"Demographics"``), and ``pathname``.
-
-        Use this to discover page codes before calling ``go_to_page()``.
+        Displays as a table in Jupyter. Use pageId values with ``go_to_page()``.
 
         Example
         -------
-        >>> for p in agent.list_pages():
-        ...     print(p["pageId"], p["label"])
-        DM  Demographics
-        VS  Vital sign
+        >>> agent.list_pages()          # shows table in Jupyter
+        >>> agent.go_to_page("DM")      # navigate using pageId
         """
         params: dict[str, str] = {}
         if client_id:
             params["clientId"] = client_id
         data = self._get("/api/cdm-agent/nav-pages", params=params)
-        return data.get("pages") or []
+        return PageList(data.get("pages") or [])
 
     def clients(self) -> list[dict[str, Any]]:
         """Return the list of browser clients currently registered with the daemon."""
