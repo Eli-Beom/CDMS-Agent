@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from cdm_agent_client.crf.doctor import (
+from cdm_agent_client.crf.quality.doctor import (
     DoctorReport,
     DoctorIssue,
     _build_overview_stats,
@@ -223,9 +223,9 @@ class TestDuplicateTriggerDetection:
     def _run_checks_on_spec(self, spec: dict, tmp_path) -> DoctorReport:
         """Run the doctor's internal checks without calling extract_spec."""
         from collections import Counter
-        from cdm_agent_client.crf.extractor import build_field_map
-        from cdm_agent_client.crf.parser import can_parse
-        from cdm_agent_client.crf.overrides import StudyOverrides
+        from cdm_agent_client.crf.extraction.extractor import build_field_map
+        from cdm_agent_client.crf.extraction.parser import can_parse
+        from cdm_agent_client.crf.quality.overrides import StudyOverrides
         import re
         import json as _json
 

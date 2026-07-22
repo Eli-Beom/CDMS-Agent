@@ -1,4 +1,4 @@
-from cdm_agent_client.crf.candidate_prerequisites import enrich_same_page_prerequisites
+from cdm_agent_client.crf.discovery.candidate_prerequisites import enrich_same_page_prerequisites
 from cdm_agent_client.crf.models import FieldDef
 
 

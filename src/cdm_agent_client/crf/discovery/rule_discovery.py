@@ -7,7 +7,7 @@ from .candidate_prerequisites import enrich_same_page_prerequisites
 from .row_matcher import current_input_row_labels, first_step_label, force_include_browser_row, resolve_field_for_label
 from .taxonomy import enrich_candidate_taxonomy
 from .trigger_matcher import condition_comparisons
-from .value_planner import fallback_query_steps, query_mode_step
+from ..generation.value_planner import fallback_query_steps, query_mode_step
 
 
 def build_browser_query_discovery_candidates(runner: Any, context: dict[str, Any]) -> list[dict[str, Any]]:

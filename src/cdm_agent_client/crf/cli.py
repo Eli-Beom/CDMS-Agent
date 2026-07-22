@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .notebook import BROWSER_ASSISTED, BROWSER_ASSISTED_COMBINED_DISCOVERY, STATIC, gen_notebook
+from .generation.notebook import BROWSER_ASSISTED, BROWSER_ASSISTED_COMBINED_DISCOVERY, STATIC, gen_notebook
 
 
 def _prompt_path(label: str, *, default: Path | None = None, must_exist: bool = False) -> Path:

@@ -1,4 +1,4 @@
-from cdm_agent_client.crf.rule_discovery_runtime import (
+from cdm_agent_client.crf.discovery.rule_discovery_runtime import (
     _availability_input_observation_value,
     _availability_probe_record,
     _candidate_availability_probe_steps,

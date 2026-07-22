@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from cdm_agent_client.crf.audit import audit_phase0, audit_query_cases, collect_calculation_items
+from cdm_agent_client.crf.quality.audit import audit_phase0, audit_query_cases, collect_calculation_items
 from cdm_agent_client.crf.models import CRFCase, Step
 
 

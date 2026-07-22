@@ -4,17 +4,17 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .extractor import _coerce_visit_map, build_field_map, extract_spec
+from .extraction.extractor import _coerce_visit_map, build_field_map, extract_spec
 from .models import Check, CRFCase, CRFPlan, FieldDef, Step
-from .overrides import StudyOverrides
-from .parser import (
+from .quality.overrides import StudyOverrides
+from .extraction.parser import (
     classify_triggers,
     collect_availability_items,
     collect_visibility_items,
     parse_availability,
     parse_visibility,
 )
-from .simulator import extract_inputs, extract_input_variants
+from .extraction.simulator import extract_inputs, extract_input_variants
 
 if TYPE_CHECKING:
     from ..client import CDMSAgent

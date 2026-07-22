@@ -9,7 +9,7 @@ import pytest
 import sys
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from cdm_agent_client.crf.overrides import (
+from cdm_agent_client.crf.quality.overrides import (
     StudyOverrides,
     OverrideValidationError,
     _validate_errors,

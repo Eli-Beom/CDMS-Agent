@@ -1,4 +1,4 @@
-from cdm_agent_client.crf.taxonomy import enrich_candidate_taxonomy, enrich_limitation_taxonomy
+from cdm_agent_client.crf.discovery.taxonomy import enrich_candidate_taxonomy, enrich_limitation_taxonomy
 
 
 def test_age_candidate_taxonomy():

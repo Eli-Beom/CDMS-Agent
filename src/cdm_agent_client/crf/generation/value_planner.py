@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import Step
-from .row_matcher import normalize_label, skip_browser_row
+from ..models import Step
+from ..discovery.row_matcher import normalize_label, skip_browser_row
 
 
 def numeric_discovery_value_for(label: str, *, expect_query: bool) -> str | None:

@@ -41,7 +41,7 @@ def _cmd_doctor(args: list[str]) -> int:
         else:
             remaining = remaining[1:]
 
-    from .doctor import run_doctor
+    from .quality.doctor import run_doctor
 
     try:
         report = run_doctor(crf_path, overrides_dir=overrides_dir, extract_timeout=timeout)

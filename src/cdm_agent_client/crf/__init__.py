@@ -1,6 +1,6 @@
 from .runner import CRFRunner, resolve_crf_location
 from .run import CRFRun
-from .notebook import (
+from .generation.notebook import (
     BROWSER_ASSISTED_COMBINED_DISCOVERY,
     CRFNotebookBuilder,
     gen_combined_discovery_notebook,
@@ -19,9 +19,9 @@ from .models import (
     SimResult,
     Step,
 )
-from .overrides import StudyOverrides, load_overrides
-from .doctor import CRFDoctor, DoctorReport, run_doctor
-from .audit import audit_phase0, audit_query_cases, collect_calculation_items
+from .quality.overrides import StudyOverrides, load_overrides
+from .quality.doctor import CRFDoctor, DoctorReport, run_doctor
+from .quality.audit import audit_phase0, audit_query_cases, collect_calculation_items
 
 __all__ = [
     # core

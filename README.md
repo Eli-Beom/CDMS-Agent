@@ -45,19 +45,20 @@ CDMS-Agent/
 │   ├── models.py                #   PageSnapshot, StepResult, PageList
 │   ├── exceptions.py            #   CDMAgentError 계열
 │   └── crf/                     #   CRF(TypeScript) 소스 기반 분석/생성 파이프라인
-│       ├── extractor.py / parser.py   # CRF TS 소스 → spec 추출/파싱
-│       ├── simulator.py               # 조건식 → 테스트 입력값 시뮬레이션
-│       ├── runner.py / models.py      # CRFRunner, CRFPlan, CRFCase
+│       ├── runner.py / models.py      # CRFRunner, CRFPlan, CRFCase — 핵심 오케스트레이션
 │       ├── run.py                     # CRFRun — 생성된 케이스를 CDMSAgent로 실행
-│       ├── notebook.py / org_notebook.py  # gen_notebook() — 검증 Jupyter 노트북 생성
-│       ├── doctor.py                  # cdms-crf doctor — 브라우저 없이 정적 진단
-│       ├── audit.py                   # Phase0 감사, query 케이스 감사
-│       ├── availability_discovery*.py # 필드 활성/비활성 조건 탐색
-│       ├── rule_discovery*.py         # Query 트리거 규칙 탐색
-│       ├── trigger_matcher.py / row_matcher.py / taxonomy.py
-│       ├── candidate_prerequisites.py / overrides.py / value_planner.py
+│       ├── cli.py / __main__.py       # cdms-crf-notebook / cdms-crf CLI 진입점
 │       ├── value_generators/          # 타입별(나이, 숫자 등) 테스트값 생성기
-│       └── cli.py / __main__.py       # cdms-crf-notebook / cdms-crf CLI 진입점
+│       ├── extraction/                # CRF TS 소스 → spec 추출/파싱/입력값 시뮬레이션
+│       │   └── extractor.py / parser.py / simulator.py
+│       ├── discovery/                 # Query/활성화 조건 탐색 및 매칭
+│       │   └── availability_discovery*.py / rule_discovery*.py /
+│       │       trigger_matcher.py / row_matcher.py / taxonomy.py /
+│       │       candidate_prerequisites.py
+│       ├── generation/                # 검증 Jupyter 노트북 생성
+│       │   └── notebook.py / org_notebook.py / value_planner.py
+│       └── quality/                   # 브라우저 없는 정적 진단/감사
+│           └── doctor.py / audit.py / overrides.py
 │
 ├── extension/                   # Chrome Extension (개발 소스, load unpacked 대상)
 │   ├── manifest.json

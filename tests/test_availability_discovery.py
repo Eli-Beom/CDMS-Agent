@@ -1,9 +1,9 @@
-from cdm_agent_client.crf.availability_discovery import (
+from cdm_agent_client.crf.discovery.availability_discovery import (
     _parse_simple_availability_rules,
     _value_for_rule,
     build_browser_availability_discovery_candidates,
 )
-from cdm_agent_client.crf.availability_discovery_runtime import _observation_result
+from cdm_agent_client.crf.discovery.availability_discovery_runtime import _observation_result
 from cdm_agent_client.crf.models import FieldDef
 
 

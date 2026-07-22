@@ -5,7 +5,7 @@ from itertools import product
 from typing import TYPE_CHECKING
 
 from .parser import is_null_guard
-from .value_generators import (
+from ..value_generators import (
     InputTuple,
     age_input,
     age_range_or_variants,
@@ -20,7 +20,7 @@ from .value_generators import (
 )
 
 if TYPE_CHECKING:
-    from .models import FieldDef
+    from ..models import FieldDef
 
 
 _BASE_DATE = date(2024, 1, 1)

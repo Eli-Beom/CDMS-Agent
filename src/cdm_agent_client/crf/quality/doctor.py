@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .extractor import build_field_map, extract_spec
+from ..extraction.extractor import build_field_map, extract_spec
 from .overrides import StudyOverrides, _validate_errors
-from .parser import (
+from ..extraction.parser import (
     can_parse,
     collect_availability_items,
 )
@@ -146,7 +146,7 @@ class CRFDoctor:
         *,
         overrides_dir: str | Path | None = None,
     ) -> None:
-        from .runner import resolve_crf_location
+        from ..runner import resolve_crf_location
 
         self._crf_path = Path(crf_path)
         self._maven_root, self._study_id = resolve_crf_location(crf_path=crf_path)

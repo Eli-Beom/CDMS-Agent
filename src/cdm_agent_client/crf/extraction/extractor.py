@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .models import FieldDef
+from ..models import FieldDef
 
 
 def extract_spec(study: str, maven_root: str | Path, timeout: int = 90) -> dict:

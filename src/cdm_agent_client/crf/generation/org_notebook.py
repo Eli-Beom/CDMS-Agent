@@ -5,10 +5,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from . import row_matcher as _row_matcher
-from . import rule_discovery as _rule_discovery
+from ..discovery import row_matcher as _row_matcher
+from ..discovery import rule_discovery as _rule_discovery
 from . import value_planner as _value_planner
-from . import availability_discovery as _availability_discovery
+from ..discovery import availability_discovery as _availability_discovery
 
 
 BROWSER_ASSISTED = "browser-assisted"
@@ -37,7 +37,7 @@ class CRFNotebookBuilder:
         visit_map: dict[int, str] | None = None,
         page_ids: set[str] | list[str] | tuple[str, ...] | None = None,
     ) -> None:
-        from .runner import resolve_crf_location
+        from ..runner import resolve_crf_location
 
         self.maven_root, self.study = resolve_crf_location(
             crf_path=crf_path,
@@ -195,7 +195,7 @@ def _generated_case_cells(
     generation_mode: str,
     final_action: str,
 ) -> list[dict[str, Any]]:
-    from .runner import CRFRunner
+    from ..runner import CRFRunner
 
     runner = CRFRunner(
         crf_path=builder.crf_path,
@@ -310,7 +310,7 @@ def _browser_assisted_cases(cases: list[Any], context: dict[str, Any]) -> list[A
 
 
 def _browser_input_cases(context: dict[str, Any], *, final_action: str = "save_next") -> list[Any]:
-    from .models import CRFCase, Step
+    from ..models import CRFCase, Step
 
     page_id = context.get("page_id") or ""
     visit_id = _visit_id_from_path(context.get("pathname"))
@@ -459,7 +459,7 @@ def _steps_to_discovery_dicts(steps: list[Any]) -> list[dict[str, Any]]:
 
 
 def _browser_query_case(runner: Any, context: dict[str, Any], *, expect_query: bool):
-    from .models import CRFCase, Step
+    from ..models import CRFCase, Step
 
     page_id = context.get("page_id") or ""
     visit_id = _visit_id_from_path(context.get("pathname"))
@@ -875,7 +875,7 @@ def _post_save_probe_code(expected: str) -> str:
 
 
 def _save_step_for_chunk(steps: list[Any], *, final_action: str = "save_next") -> Any:
-    from .models import Step
+    from ..models import Step
 
     page_id = None
     visit_id = None

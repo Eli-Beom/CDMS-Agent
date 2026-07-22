@@ -1,4 +1,4 @@
-from cdm_agent_client.crf.trigger_matcher import condition_branches, condition_comparisons
+from cdm_agent_client.crf.discovery.trigger_matcher import condition_branches, condition_comparisons
 
 
 def test_condition_comparisons_extract_simple_and_leaves():
