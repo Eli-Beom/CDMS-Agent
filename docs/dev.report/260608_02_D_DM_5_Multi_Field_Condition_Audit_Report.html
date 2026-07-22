@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>D_DM_5 Multi-field Query Condition Audit Report</title>
+  <style>
+    body { font-family: "Segoe UI", "Malgun Gothic", Arial, sans-serif; line-height: 1.58; margin: 32px; color: #20242a; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #d7dce2; padding-bottom: 5px; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 13px; }
+    th, td { border: 1px solid #d7dce2; padding: 7px 9px; vertical-align: top; }
+    th { background: #f3f5f7; text-align: left; }
+    code { background: #f2f4f6; padding: 1px 4px; border-radius: 3px; }
+    pre { background: #f7f8fa; border: 1px solid #d7dce2; padding: 12px; overflow-x: auto; white-space: pre-wrap; }
+    .ok { background: #eef8f1; border-left: 4px solid #2e8b57; padding: 10px 12px; margin: 12px 0; }
+    .risk { background: #fff0f0; border-left: 4px solid #c73737; padding: 10px 12px; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>D_DM_5 Multi-field Query Condition Audit Report</h1>
+  <p><strong>작성일:</strong> 2026-06-08</p>
+  <p><strong>대상:</strong> <code>Practice_GSB / DM / D_DM_5</code></p>
+
+  <h2>1. 결론</h2>
+  <div class="ok">
+    <code>D_DM_5</code>의 <code>OPINDCL=3 AND OPINDCR=3</code> 조건은 TypeScript extractor와
+    <code>CRFRunner._spec</code>까지 보존되어 있었다. 손실 지점은 extractor/parser/runner가 아니라
+    candidate 생성 단계에서 condition item metadata와 expected query labels를 충분히 반영하지 않은 부분이었다.
+  </div>
+
+  <h2>2. Trace 결과</h2>
+  <table>
+    <thead>
+      <tr><th>단계</th><th>확인 결과</th><th>판단</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>trigger.ts / extracted spec</td>
+        <td><code>conditional.operator = AND</code>, expr에 <code>OPINDCL = 3</code>, <code>OPINDCR = 3</code>가 보존됨.</td>
+        <td>손실 없음</td>
+      </tr>
+      <tr>
+        <td>CRFRunner._spec</td>
+        <td><code>D_DM_5</code> trigger의 <code>issue.itemId = OPINDCR</code>, <code>conditional</code> 구조 보존.</td>
+        <td>손실 없음</td>
+      </tr>
+      <tr>
+        <td>runner.query_cases()</td>
+        <td>query_expected case가 좌측/우측 수술 목적을 모두 <code>해당사항 없음</code>으로 입력하는 step을 생성.</td>
+        <td>입력 step 생성 가능</td>
+      </tr>
+      <tr>
+        <td>candidate generator</td>
+        <td>기존에는 issue item 중심 label만 강하게 남고, condition item/value metadata가 candidate에 명시되지 않았음.</td>
+        <td>수정 지점</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. 확인된 D_DM_5 원천 구조</h2>
+  <pre><code>{
+  "id": "D_DM_5",
+  "type": "QUERY",
+  "pageId": "DM",
+  "issue": {"itemId": [{"itemId": "OPINDCR", "crfPageId": "DM"}]},
+  "conditional": {
+    "operator": "AND",
+    "expr": [
+      {"left": {"itemId": "OPINDCL", "crfPageId": "DM"}, "operator": "=", "right": 3},
+      {"left": {"itemId": "OPINDCR", "crfPageId": "DM"}, "operator": "=", "right": 3}
+    ]
+  }
+}</code></pre>
+
+  <h2>4. 구현 변경</h2>
+  <table>
+    <thead>
+      <tr><th>파일</th><th>변경 내용</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\trigger_matcher.py</code></td>
+        <td><code>condition_comparisons()</code> 추가. trigger conditional에서 simple item/operator/value comparison leaf를 범용 추출.</td>
+      </tr>
+      <tr>
+        <td><code>C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\rule_discovery.py</code></td>
+        <td>browser-assisted candidate 생성 시 <code>condition_items</code>와 condition item labels를 candidate에 반영.</td>
+      </tr>
+      <tr>
+        <td><code>C:\Users\SunbeomGwon\maven-crfs\scripts\generate_screening_rule_discovery.py</code></td>
+        <td>static candidate 생성 시 <code>condition_items</code> 생성, <code>expected_query_message_labels</code>에 실제 input item condition labels 추가. notebook version <code>v0.6.15</code>.</td>
+      </tr>
+      <tr>
+        <td><code>C:\Users\SunbeomGwon\CDMS-Agent\tests\test_trigger_matcher.py</code></td>
+        <td>simple AND comparison extraction 테스트 추가.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>5. D_DM_5 Candidate After</h2>
+  <pre><code>{
+  "DVS ID": "D_DM_5",
+  "item_id": "OPINDCR",
+  "item_label": "[우측 유방] 수술 목적",
+  "input_item_ids": ["OPINDCL", "OPINDCR"],
+  "input_item_labels": ["[좌측 유방] 수술 목적", "[우측 유방] 수술 목적"],
+  "expected_query_message_labels": [
+    "[우측 유방] 수술 목적",
+    "[좌측 유방] 수술 목적"
+  ],
+  "condition_items": [
+    {
+      "item_id": "OPINDCL",
+      "item_label": "[좌측 유방] 수술 목적",
+      "operator": "=",
+      "value": 3,
+      "ui_value": "해당사항 없음"
+    },
+    {
+      "item_id": "OPINDCR",
+      "item_label": "[우측 유방] 수술 목적",
+      "operator": "=",
+      "value": 3,
+      "ui_value": "해당사항 없음"
+    }
+  ]
+}</code></pre>
+
+  <h2>6. 검증 결과</h2>
+  <table>
+    <thead>
+      <tr><th>검증</th><th>결과</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>python -m pytest</code></td><td><code>69 passed</code></td></tr>
+      <tr><td>candidate 재생성</td><td><code>python scripts\generate_screening_rule_discovery.py</code> 실행 완료</td></tr>
+      <tr><td>DM notebook</td><td><code>CDMS-Agent_test_DM_v0.6.15.ipynb</code> 생성 확인</td></tr>
+      <tr><td>D_DM_5</td><td><code>OPINDCL=3</code>, <code>OPINDCR=3</code> condition item과 좌/우 query labels 반영 확인</td></tr>
+    </tbody>
+  </table>
+
+  <h2>7. 남은 리스크</h2>
+  <div class="risk">
+    <code>D_DM_14_1</code>은 화면 label이 모두 <code>부위</code>로 중복되어
+    <code>input_item_ids</code>가 <code>BMLOC, BMLOC</code>로 resolve되는 기존 문제가 남아 있다.
+    이는 multi-field condition parser 문제가 아니라 row/field resolver가 section 또는 item id context를 사용하지 못하는 문제다.
+  </div>
+  <ul>
+    <li>OR expression은 metadata에는 전체 comparison이 보존되지만, expected query labels는 실제 input step item 기준으로 제한했다.</li>
+    <li>복잡한 expression branch expansion은 후속 작업으로 남긴다.</li>
+    <li>중복 label row는 section/item id 기반 resolver가 필요하다.</li>
+  </ul>
+</body>
+</html>

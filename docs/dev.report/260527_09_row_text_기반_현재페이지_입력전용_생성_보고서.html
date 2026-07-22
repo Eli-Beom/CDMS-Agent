@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>row_text 기반 현재 페이지 입력 전용 생성 보고서</title>
+  <style>
+    body { margin:0; background:#f6f8fb; color:#17212f; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif; line-height:1.58; }
+    main { max-width:1040px; margin:0 auto; padding:32px 24px 56px; }
+    article { background:#fff; border:1px solid #d8dee8; border-radius:8px; padding:30px; }
+    header { border-bottom:1px solid #d8dee8; padding-bottom:16px; margin-bottom:22px; }
+    h1 { margin:0 0 8px; font-size:30px; line-height:1.2; letter-spacing:0; }
+    h2 { margin:26px 0 10px; font-size:19px; letter-spacing:0; }
+    p { margin:8px 0 12px; }
+    ul, ol { margin:8px 0 14px; padding-left:22px; }
+    li { margin:4px 0; }
+    code { padding:2px 5px; border-radius:5px; background:#eef3f8; font-family:"Cascadia Mono",Consolas,monospace; font-size:.92em; }
+    pre { margin:12px 0 16px; padding:14px 16px; overflow:auto; border-radius:8px; background:#111827; color:#f9fafb; font-family:"Cascadia Mono",Consolas,monospace; font-size:13px; line-height:1.5; }
+    table { width:100%; border-collapse:collapse; border:1px solid #d8dee8; margin-top:10px; }
+    th,td { border-bottom:1px solid #d8dee8; padding:9px 11px; text-align:left; vertical-align:top; }
+    th { background:#eef3f8; font-weight:700; }
+    .meta { display:flex; flex-wrap:wrap; gap:8px; color:#5f6b7a; font-size:13px; }
+    .summary { border-left:4px solid #1d5fd6; background:#f8fbff; padding:12px 14px; margin:16px 0; }
+    .ok { color:#007a5a; font-weight:700; }
+  </style>
+</head>
+<body>
+<main>
+  <article>
+    <header>
+      <h1>row_text 기반 현재 페이지 입력 전용 생성 보고서</h1>
+      <div class="meta">
+        <span>Date: 2026-05-27 (_260527)</span>
+        <span>Project: CDMS-Agent</span>
+        <span>Notebook: CDMS-Agent_test_v0.3.6.ipynb</span>
+      </div>
+    </header>
+
+    <section class="summary">
+      <p>
+        이번 변경은 query trigger 기반 자동 생성에서 벗어나, 현재 연결된 브라우저 페이지의 <code>row_text</code>를 보고
+        <strong>입력 가능한 smoke cell만 생성</strong>하는 방향으로 단순화한 작업입니다.
+      </p>
+    </section>
+
+    <section>
+      <h2>저장 위치 판단</h2>
+      <table>
+        <thead><tr><th>영역</th><th>역할</th><th>이번 변경 여부</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Python package</td>
+            <td>notebook에 어떤 셀을 만들지, 어떤 함수명과 출력 문구를 노출할지 결정합니다.</td>
+            <td><span class="ok">수정 대상</span></td>
+          </tr>
+          <tr>
+            <td>daemon / extension</td>
+            <td>현재 브라우저 DOM을 inspect하고 실제 클릭/date 입력을 수행합니다.</td>
+            <td>DOM 클릭 실패가 확인될 때 별도 보강</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        이번 요청은 “현재 연결된 페이지를 보고 입력 셀을 어떻게 만들지”에 해당하므로
+        <code>src/cdm_agent_client/crf/notebook.py</code>에 저장했습니다.
+      </p>
+    </section>
+
+    <section>
+      <h2>수정 내용</h2>
+      <ul>
+        <li><code>browser-assisted</code> 모드에서 CRF query trigger 기반 case를 사용하지 않도록 변경.</li>
+        <li>현재 브라우저 <code>structured_rows</code>를 읽어 <code>DM_INPUT</code> 입력 smoke case를 생성.</li>
+        <li>helper 함수명을 <code>row_text</code>, <code>row_editable</code>, <code>row_locked</code>로 변경.</li>
+        <li>건너뛰기 출력 문구를 <code>건너뜀 - 편집 불가:</code>로 변경.</li>
+        <li>notebook 생성 cell에서 <code>include_query=False</code>로 고정해 query 관련 흐름을 끊음.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>생성 결과</h2>
+      <pre><code>Notebook:
+  C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB\CDMS-Agent_test_v0.3.6.ipynb
+
+Current page:
+  DM / 인구학적 조사
+
+Generated:
+  cells: 11
+  case: DM_INPUT
+  steps:
+    set_date 생년월일
+    select_radio 성별 = 여성
+    select_radio 가임 여부 = 예
+    select_radio 수유 여부 = 예
+    select_radio 흡연력 = 흡연력 없음
+    select_radio 음주력 = 음주력 없음
+    click_save</code></pre>
+    </section>
+
+    <section>
+      <h2>검증 결과</h2>
+      <pre><code>row_text: present
+row_editable: present
+row_locked: present
+row_is_editable: 0
+row_is_disabled: 0
+row_state: 0
+건너뜀 - 편집 불가: present
+SKIP not editable: 0
+Expected Result: 0
+expected_result: 0
+has_query: 0
+check_result: 0
+CASE_CHECK: 0
+query triggers/query auto/query manual: 0
+
+compileall: pass
+pytest: 38 passed</code></pre>
+    </section>
+
+    <section>
+      <h2>다음 액션</h2>
+      <ol>
+        <li>Chrome extension reload 후 <code>v0.3.6</code> notebook 연결 cell을 다시 실행합니다.</li>
+        <li><code>생년월일</code> step만 먼저 실행해 date picker commit 여부를 확인합니다.</li>
+        <li>성공하면 <code>성별</code>, <code>가임 여부</code>, <code>수유 여부</code>를 순서대로 단일 실행합니다.</li>
+        <li>입력 실패가 있으면 Python 생성 로직이 아니라 daemon/extension DOM runner를 수정합니다.</li>
+        <li>query 판정과 query 합계는 현재 단계에서 재도입하지 않습니다.</li>
+      </ol>
+    </section>
+  </article>
+</main>
+</body>
+</html>

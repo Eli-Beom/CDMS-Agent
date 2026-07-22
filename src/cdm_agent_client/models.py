@@ -13,10 +13,15 @@ class PageSnapshot:
     url: str | None = None
     pathname: str | None = None
     page_label: str | None = None
+    raw_page_label: str | None = None
+    page_status: dict[str, Any] = field(default_factory=dict)
     visible_rows: list[str] = field(default_factory=list)
+    structured_rows: list[dict[str, Any]] = field(default_factory=list)
     enabled_actions: list[str] = field(default_factory=list)
     invalid_row_labels: list[str] = field(default_factory=list)
     invalid_count: int = 0
+    query_rows: list[str] = field(default_factory=list)
+    query_count: int = 0
     timestamp: str | None = None
     error: str | None = None
 
@@ -29,10 +34,15 @@ class PageSnapshot:
             url=snap.get("url"),
             pathname=snap.get("pathname"),
             page_label=snap.get("pageLabel"),
+            raw_page_label=snap.get("rawPageLabel"),
+            page_status=snap.get("pageStatus") or {},
             visible_rows=snap.get("visibleRows") or [],
+            structured_rows=snap.get("structuredRows") or [],
             enabled_actions=snap.get("enabledActions") or [],
             invalid_row_labels=snap.get("invalidRowLabels") or [],
             invalid_count=snap.get("invalidCount") or 0,
+            query_rows=snap.get("queryRows") or [],
+            query_count=snap.get("queryCount") or len(snap.get("queryRows") or []),
             timestamp=snap.get("timestamp"),
             error=snap.get("error"),
         )
@@ -46,9 +56,17 @@ class PageSnapshot:
         status_label = "Connected" if self.connected else "Disconnected"
 
         rows_html = "".join(f"<li>{r}</li>" for r in self.visible_rows) or "<li><em>(none)</em></li>"
+        structured_html = (
+            "".join(
+                f"<li>{r.get('rowLabel', '')} "
+                f"({'editable' if r.get('editable') else 'disabled' if r.get('disabled') else 'read-only'})</li>"
+                for r in self.structured_rows[:20]
+            )
+            or "<li><em>(none)</em></li>"
+        )
         actions_html = "".join(f"<li>{a}</li>" for a in self.enabled_actions) or "<li><em>(none)</em></li>"
-        invalid_html = (
-            "".join(f"<li style='color:#e74c3c'>{r}</li>" for r in self.invalid_row_labels)
+        query_html = (
+            "".join(f"<li style='color:#e74c3c'>{r}</li>" for r in (self.query_rows or self.invalid_row_labels))
             or "<li><em>(none)</em></li>"
         )
 
@@ -70,7 +88,10 @@ class PageSnapshot:
                 <td style="color:{status_color}">{status_label}</td></tr>
             <tr><td><b>Client ID</b></td><td>{self.client_id or "—"}</td></tr>
             <tr><td><b>Page</b></td><td>{self.page_label or "—"}</td></tr>
+            <tr><td><b>Raw page</b></td><td>{self.raw_page_label or "—"}</td></tr>
             <tr><td><b>URL</b></td><td style="word-break:break-all">{self.url or "—"}</td></tr>
+            <tr><td><b>Page status</b></td><td>{self.page_status or "—"}</td></tr>
+            <tr><td><b>Query count</b></td><td>{self.query_count}</td></tr>
             <tr><td><b>Invalid rows</b></td><td>{self.invalid_count}</td></tr>
             {error_section}
           </table>
@@ -80,12 +101,16 @@ class PageSnapshot:
               <ul style="margin:4px 0;padding-left:18px">{rows_html}</ul>
             </div>
             <div style="flex:1">
+              <b>Structured rows</b>
+              <ul style="margin:4px 0;padding-left:18px">{structured_html}</ul>
+            </div>
+            <div style="flex:1">
               <b>Enabled actions</b>
               <ul style="margin:4px 0;padding-left:18px">{actions_html}</ul>
             </div>
             <div style="flex:1">
-              <b>Invalid rows</b>
-              <ul style="margin:4px 0;padding-left:18px">{invalid_html}</ul>
+              <b>Query rows</b>
+              <ul style="margin:4px 0;padding-left:18px">{query_html}</ul>
             </div>
           </div>
           <p style="color:#999;font-size:11px;margin:8px 0 0">{self.timestamp or ""}</p>
@@ -95,7 +120,8 @@ class PageSnapshot:
     def __repr__(self) -> str:
         return (
             f"PageSnapshot(connected={self.connected}, page_label={self.page_label!r}, "
-            f"visible_rows={len(self.visible_rows)}, invalid_count={self.invalid_count})"
+            f"visible_rows={len(self.visible_rows)}, structured_rows={len(self.structured_rows)}, "
+            f"invalid_count={self.invalid_count})"
         )
 
 

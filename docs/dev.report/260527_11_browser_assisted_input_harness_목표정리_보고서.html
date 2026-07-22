@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>260527_11_browser_assisted_input_harness_목표정리_보고서</title>
+  <style>
+    body { font-family: "Malgun Gothic", Arial, sans-serif; margin: 40px; color: #202124; line-height: 1.65; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #ddd; padding: 8px 10px; vertical-align: top; }
+    th { background: #f5f5f5; width: 220px; }
+    code { background: #f6f8fa; padding: 2px 5px; border-radius: 4px; }
+    .note { background: #eef6ff; border-left: 4px solid #1a73e8; padding: 10px 12px; }
+  </style>
+</head>
+<body>
+  <h1>browser-assisted input harness 목표 정리 보고서</h1>
+  <p><strong>작성일:</strong> 2026-05-27</p>
+
+  <h2>현재 변경된 목표</h2>
+  <p>
+    기존에는 CRF 코드의 DVS/query rule을 해석하여 expected result와 query 발생 여부까지 자동 검증하려는 방향이 포함되어 있었다.
+    그러나 현재 과제의 CRF 구조와 브라우저 저장 피드백 특성상, DVS rule 자동 검증은 안정적으로 추진하기 어렵다.
+    따라서 현재 목표는 DVS/query 검증이 아니라 <strong>연결된 브라우저의 현재 페이지에서 입력 가능한 row를 최대한 정확히 찾아 notebook 입력 script를 생성하는 것</strong>으로 재정의한다.
+  </p>
+
+  <h2>범위에서 제외한 것</h2>
+  <table>
+    <tr><th>DVS/query 자동 검증</th><td>현재 단계에서는 보류한다. query 발생 여부는 저장 후 화면 피드백을 사람이 확인한다.</td></tr>
+    <tr><th>query expected result</th><td>notebook cell에 생성하지 않는다.</td></tr>
+    <tr><th><code>has_query</code>, <code>check_result</code>, <code>CASE_CHECK</code></th><td>자동 판정 신뢰도가 낮아 제거 상태를 유지한다.</td></tr>
+    <tr><th>query 합계/분류</th><td>현재 입력 harness 목적과 직접 관련이 없으므로 생성/요약하지 않는다.</td></tr>
+  </table>
+
+  <h2>해결 전략</h2>
+  <p>
+    앞으로의 구조는 CRF 코드만으로 test script를 추론하지 않는다. CRF 코드는 page/visit 구조와 기본 context를 잡는 데 사용하고,
+    실제 입력 가능한 항목 판단은 브라우저 DOM inspect 결과를 우선한다.
+  </p>
+  <table>
+    <tr>
+      <th>Python notebook 생성기</th>
+      <td>
+        <code>src/cdm_agent_client/crf/notebook.py</code>는 browser-assisted 모드에서 현재 브라우저의
+        <code>structured_rows</code>를 읽고 입력 step을 생성한다.
+        notebook에는 복잡한 if문이나 사전 row 상태 helper를 넣지 않고, <code>agent.set_date</code>,
+        <code>agent.select_radio</code>, <code>agent.select_option</code> 같은 직접 입력 명령만 둔다.
+      </td>
+    </tr>
+    <tr>
+      <th>Extension runner</th>
+      <td>
+        <code>browser-runner-core.js</code>가 실제 DOM 상태를 판단한다.
+        회사 trigger 용어에 맞춰 <code>row_visibility</code>, <code>row_availability</code>,
+        <code>row_disability</code>를 계산하고, hidden/unavailable/locked row는 실패가 아니라 <code>skipped</code>로 넘긴다.
+      </td>
+    </tr>
+    <tr>
+      <th>Radio/option 처리</th>
+      <td>
+        <code>예</code>, <code>아니요</code>처럼 여러 row에 반복되는 option 때문에 오클릭이 발생할 수 있다.
+        따라서 radio 좌표 계산은 document 전체가 아니라 target row 내부에서만 option을 찾아야 한다.
+      </td>
+    </tr>
+    <tr>
+      <th>Row 확정</th>
+      <td>
+        단순 visible text 후보가 아니라 실제 input/control을 기준으로 row를 확정해야 한다.
+        bracket label, table/grid row, section 아래 입력 row를 안정적으로 잡는 것이 다음 핵심 과제다.
+      </td>
+    </tr>
+  </table>
+
+  <h2>현재까지의 노력</h2>
+  <table>
+    <tr><th>query 자동 판정 제거</th><td>notebook에서 <code>Expected Result</code>, <code>has_query</code>, <code>check_result</code>, <code>CASE_CHECK</code> 흐름을 제거했다.</td></tr>
+    <tr><th>입력 전용 notebook 생성</th><td>v0.4.0 notebook을 browser-assisted/current-page 입력 전용으로 생성했다.</td></tr>
+    <tr><th>runner skip 도입</th><td>입력 불가 row를 notebook 조건문으로 거르지 않고 extension runner가 <code>skipped</code> 처리하도록 했다.</td></tr>
+    <tr><th>금지 문자열 확인</th><td>생성 notebook에 helper/query 자동 판정 문자열이 다시 들어오지 않는지 확인했다.</td></tr>
+    <tr><th>문제 분리</th><td>누락 문제를 생성기 누락과 runner 실행 실패로 분리했다. 예: <code>가임 여부</code>는 생성됐으나 실행 안정성 문제, 좌/우측 유방 수술 목적과 유방암 병력은 row 확정 누락 문제다.</td></tr>
+  </table>
+
+  <h2>남은 문제</h2>
+  <p>
+    현재 inspect의 <code>structured_rows</code>는 화면에 보이는 모든 입력 row를 안정적으로 확정하지 못한다.
+    특히 다음 유형이 취약하다.
+  </p>
+  <table>
+    <tr><th>중복 option row</th><td><code>예</code>, <code>아니요</code>가 여러 row에 반복되어 radio 클릭이 다른 row로 갈 수 있다.</td></tr>
+    <tr><th>bracket label</th><td><code>[좌측 유방] 수술 목적</code>, <code>[우측 유방] 수술 목적</code>처럼 bracket label이 있는 row가 누락될 수 있다.</td></tr>
+    <tr><th>table/grid 입력</th><td><code>부위</code>, <code>진단일</code>, <code>병기 확인일</code>, <code>Tumor</code>, <code>Nodes</code>, <code>Metastasis</code>, <code>Stage</code> 같은 table 구조는 rowLabel을 조합해야 한다.</td></tr>
+    <tr><th>section/header 혼동</th><td>section title이나 table header가 rowLabel 후보로 섞여 실제 입력 row 확정이 흐려질 수 있다.</td></tr>
+  </table>
+
+  <h2>다음 개발 방향</h2>
+  <ol>
+    <li><code>structuredRows()</code>를 visible text 기반이 아니라 실제 control 기반으로 재작성한다.</li>
+    <li>rowLabel은 같은 row의 label/th/td에서 추출하고, option text 단독값은 rowLabel에서 제외한다.</li>
+    <li>radio 클릭 좌표 계산은 반드시 <code>findRow(rowLabel)</code> 내부에서만 option을 찾도록 수정한다.</li>
+    <li>CDP radio 클릭 후 target option의 checked 상태를 검증한다.</li>
+    <li>notebook.py의 <code>_browser_input_cases()</code>는 확정된 structured row를 기반으로 입력 step을 더 많이 생성한다.</li>
+    <li>v0.4.1 notebook을 생성하여 생년월일, 성별, 가임 여부, 수유 여부, 좌/우측 유방 수술 목적, 유방암 병력 등이 포함되는지 확인한다.</li>
+  </ol>
+
+  <h2>운영 원칙</h2>
+  <p class="note">
+    DVS rule은 나중에 다시 고려한다. 현재는 입력 가능한 row를 찾고 실행하는 harness를 먼저 안정화한다.
+    저장 후 query 발생 여부는 자동 판정하지 않고, 사람이 브라우저 피드백을 확인한다.
+  </p>
+</body>
+</html>

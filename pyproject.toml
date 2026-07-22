@@ -12,15 +12,23 @@ dependencies = [
     "requests>=2.28",
 ]
 
+[project.scripts]
+cdms-crf-notebook = "cdm_agent_client.crf.cli:main"
+cdms-crf = "cdm_agent_client.crf.__main__:main"
+
 [project.optional-dependencies]
 jupyter = [
     "ipython>=7.0",
     "notebook>=6.0",
 ]
+dvs = [
+    "openpyxl>=3.1",
+]
 dev = [
     "pytest",
     "ipython",
     "notebook",
+    "openpyxl>=3.1",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cleanup / Documentation 260527</title>
+  <style>
+    body{margin:0;background:#f6f8fb;color:#17212f;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;line-height:1.58}
+    main{max-width:1020px;margin:0 auto;padding:32px 24px 56px}.sheet{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:28px}
+    h1{margin:0 0 8px;font-size:29px;letter-spacing:0}h2{margin:26px 0 10px;font-size:19px;letter-spacing:0}
+    p{margin:8px 0 12px}ul{padding-left:22px}li{margin:4px 0}code{background:#eef3f8;padding:2px 5px;border-radius:5px}
+    table{width:100%;border-collapse:collapse;border:1px solid #d8dee8;margin-top:10px}th,td{border-bottom:1px solid #d8dee8;padding:9px 11px;text-align:left;vertical-align:top}th{background:#eef3f8}
+    .meta{color:#5f6b7a;font-size:13px}.summary{border-left:4px solid #1d5fd6;background:#f8fbff;padding:12px 14px;margin:16px 0}
+  </style>
+</head>
+<body><main><article class="sheet">
+  <h1>Cleanup / Documentation</h1>
+  <div class="meta">Date: 2026-05-27 (_260527) · Work Unit: scope cleanup and docs</div>
+  <section class="summary">
+    <p>목적은 현재 단계에서 불가능하거나 부담이 큰 누적 데이터/추천 기능을 active path에서 빼고, 개발 방향을 문서로 고정하는 것입니다.</p>
+  </section>
+  <section>
+    <h2>제거/정리한 기능</h2>
+    <ul>
+      <li>SQLite run store 기반 raw 데이터 장기 축적</li>
+      <li>SuggestionEngine 기반 pending suggestion 생성/승인 흐름</li>
+      <li><code>suggest</code>, <code>accept-suggestion</code>, <code>reject-suggestion</code> CLI 공개 경로</li>
+      <li>관련 테스트와 패키지 export</li>
+    </ul>
+  </section>
+  <section>
+    <h2>문서 업데이트</h2>
+    <table>
+      <tr><th>문서</th><th>변경 내용</th></tr>
+      <tr><td><code>docs/harness_engineering.html</code></td><td>browser-assisted harness, structuredRows, row-state guard 기준으로 재작성.</td></tr>
+      <tr><td><code>docs/crf_package.html</code></td><td>CRF package 역할과 active module 기준 정리.</td></tr>
+      <tr><td><code>docs/cdms_agent_client.html</code></td><td><code>PageSnapshot.structured_rows</code>와 row-state guard 사용 방식 설명.</td></tr>
+      <tr><td><code>dev.report/</code></td><td>업무 단위별 개발 보고서 추가.</td></tr>
+    </table>
+  </section>
+  <section>
+    <h2>남긴 원칙</h2>
+    <ul>
+      <li>LLM이 override를 자동 확정하지 않습니다.</li>
+      <li>현재는 “누적해서 추천”보다 “현재 브라우저에서 가능한 것만 실행”에 집중합니다.</li>
+      <li>과제별 특이사항은 runner에 무리하게 하드코딩하지 않습니다.</li>
+    </ul>
+  </section>
+  <section>
+    <h2>검증</h2>
+    <p><code>python -m compileall -q src tests</code> 및 <code>pytest -q --basetemp .pytest-tmp -p no:cacheprovider</code> 통과. 결과: <code>38 passed</code>.</p>
+  </section>
+</article></main></body>
+</html>

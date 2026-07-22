@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>CDMS-Agent Cross-Page Query Validation 확장 계획 보고서</title>
+  <style>
+    body { font-family: "Segoe UI", "Malgun Gothic", Arial, sans-serif; line-height: 1.55; margin: 32px; color: #20242a; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 19px; margin-top: 28px; border-bottom: 1px solid #d7dce2; padding-bottom: 5px; }
+    h3 { font-size: 16px; margin-top: 20px; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 13px; }
+    th, td { border: 1px solid #d7dce2; padding: 7px 9px; vertical-align: top; }
+    th { background: #f3f5f7; text-align: left; }
+    code { background: #f2f4f6; padding: 1px 4px; border-radius: 3px; }
+    pre { background: #f7f8fa; border: 1px solid #d7dce2; padding: 12px; overflow-x: auto; }
+    .note { background: #fff8e6; border-left: 4px solid #d89b00; padding: 10px 12px; margin: 12px 0; }
+    .ok { background: #eef8f1; border-left: 4px solid #2e8b57; padding: 10px 12px; margin: 12px 0; }
+    .risk { background: #fff0f0; border-left: 4px solid #c73737; padding: 10px 12px; margin: 12px 0; }
+    ul { margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>CDMS-Agent Cross-Page Query Validation 확장 계획 보고서</h1>
+  <p><strong>작성일:</strong> 2026-06-05</p>
+  <p><strong>대상 프로젝트:</strong> <code>C:\Users\SunbeomGwon\CDMS-Agent</code></p>
+  <p><strong>대상 CRF:</strong> <code>C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB</code></p>
+
+  <h2>1. 결론</h2>
+  <div class="ok">
+    현재 CDMS-Agent는 cross-page/query 확장을 완전히 새로 만들 필요가 없다.
+    이미 <code>go_to_page</code>, <code>PRECOND/MAIN</code> step, AGE generator, field.calculate 추출, date diff variant 일부가 존재한다.
+    따라서 첫 단계는 신규 dependency graph 대형 구현이 아니라, 기존 runner/simulator 결과를 audit하고 taxonomy metadata를 보강하는 것이다.
+  </div>
+
+  <h2>2. 현재 코드에 이미 있는 기능</h2>
+  <table>
+    <thead>
+      <tr><th>기능</th><th>현재 위치</th><th>상태</th><th>의미</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>페이지 이동</td>
+        <td><code>cdm_agent_client/client.py</code> / <code>CDMSAgent.go_to_page()</code></td>
+        <td>이미 있음</td>
+        <td><code>agent.go_to_page("DM")</code>, <code>agent.go_to_page("V2/DM")</code> 형태 지원.</td>
+      </tr>
+      <tr>
+        <td>cross-page precondition step</td>
+        <td><code>crf/runner.py</code> / <code>build_query_cases_for_trigger()</code></td>
+        <td>일부 있음</td>
+        <td><code>PRECOND</code>, <code>MAIN</code> 입력을 page별 step으로 만들 수 있음.</td>
+      </tr>
+      <tr>
+        <td>AGE 입력값 생성</td>
+        <td><code>crf/value_generators/age.py</code>, <code>crf/simulator.py</code></td>
+        <td>일부 있음</td>
+        <td><code>AGE&lt;22</code> 같은 derived age rule에서 생년월일 기반 입력값 생성 가능.</td>
+      </tr>
+      <tr>
+        <td>date diff variant</td>
+        <td><code>crf/simulator.py</code> / <code>valAs == "DAYS"</code></td>
+        <td>일부 있음</td>
+        <td><code>BUDAT - SVDAT</code>, <code>BQPRDAT - SVDAT</code> 같은 window rule의 경계값 생성 기반이 있음.</td>
+      </tr>
+      <tr>
+        <td>field.calculate 추출</td>
+        <td><code>crf/extractor.py</code>, <code>crf/models.py</code></td>
+        <td>이미 있음</td>
+        <td><code>AGE</code>, Breast Q 총합, RASCH 변환점수 등 page field 계산식을 spec으로 추출함.</td>
+      </tr>
+      <tr>
+        <td>availability 수집</td>
+        <td><code>crf/parser.py</code>, <code>availability_discovery_runtime.py</code></td>
+        <td>일부 있음</td>
+        <td>page field의 availability를 별도 검증 대상으로 다룰 수 있음.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. 클로드 계획에서 조정해야 할 부분</h2>
+  <table>
+    <thead>
+      <tr><th>클로드 계획</th><th>검토 결과</th><th>수정 방향</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>cross-page/navigation이 없는 것으로 보고 <code>cross_page_planner.py</code>를 새로 제안</td>
+        <td>이미 <code>go_to_page</code>와 precondition step 생성이 일부 존재</td>
+        <td>먼저 기존 <code>runner.py</code>, <code>simulator.py</code>를 audit하고 확장한다. 신규 planner는 Phase 2 이후.</td>
+      </tr>
+      <tr>
+        <td>AGE 처리를 새 dependency graph로 해결</td>
+        <td>AGE generator가 이미 존재</td>
+        <td><code>value_generators/age.py</code> 결과가 candidate/runtime까지 살아나는지 먼저 확인한다.</td>
+      </tr>
+      <tr>
+        <td><code>models.py</code>에 dependency dataclass 추가</td>
+        <td>전역 <code>models.py</code>는 browser client 모델, CRF 모델은 <code>crf/models.py</code></td>
+        <td>dependency type은 <code>crf/models.py</code> 또는 <code>crf/dependency_graph.py</code>에 둔다.</td>
+      </tr>
+      <tr>
+        <td><code>snap.visible_rows</code>에서 계산값 확인</td>
+        <td><code>visibleRows</code>는 label list 성격이 강함</td>
+        <td>계산값 검증은 <code>snap.structured_rows</code> 기반 row value extractor가 필요하다.</td>
+      </tr>
+      <tr>
+        <td>D_BU_2와 D_SV_8 방문일 rule을 섞어 설명</td>
+        <td>BU 검사일 rule과 SV 방문일 rule은 별도 DVS</td>
+        <td><code>D_BU_2</code>: target <code>BU.BUDAT</code>, source <code>SV.SVDAT</code>로 분리해서 audit한다.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>4. 우선 구현 원칙</h2>
+  <ol>
+    <li>신규 대형 모듈보다 기존 생성 결과 audit을 먼저 한다.</li>
+    <li>candidate JSON schema는 점진적으로 확장한다.</li>
+    <li>query, availability, calculation loop는 분리하되 기존 <code>run_rule_discovery_loop()</code> 호환성은 유지한다.</li>
+    <li>CSV export는 만들지 않는다.</li>
+    <li>Result는 PASS/FAIL 중심으로 유지한다.</li>
+    <li>다른 page/visit 이동이 필요한 경우 자동 이동 가능 여부와 수동 pause 필요 여부를 구분한다.</li>
+  </ol>
+
+  <h2>5. Phase별 구현 계획</h2>
+
+  <h3>Phase 0. 현 상태 Audit</h3>
+  <p><strong>목표:</strong> 실제 CRF 코드에서 CDMS-Agent가 이미 무엇을 생성하는지 확인한다.</p>
+  <ul>
+    <li><code>runner.query_cases()</code>가 <code>D_DM_1_2</code>, <code>D_PY_3</code>, <code>D_BU_2</code>, <code>D_BQ_2</code>에 대해 만드는 step을 출력한다.</li>
+    <li>실패를 세 가지로 분리한다: 생성 실패, candidate 필터링 실패, runtime 실행/관찰 실패.</li>
+    <li><code>field.calculate</code>로 추출되는 <code>AGE</code>, Breast Q 총합, RASCH 변환점수를 audit table로 출력한다.</li>
+  </ul>
+  <pre><code>audit targets:
+- D_DM_1: AGE calculation
+- D_DM_1_2: AGE&lt;22 query
+- D_PY_3: HEIGHT range query
+- D_BU_2: BUDAT-SVDAT date window query
+- D_BQ_13: Breast Q sum calculation
+- D_BQ_14: RASCH auto-link
+- D_BQ_2: BQPRDAT-SVDAT date window query</code></pre>
+
+  <h3>Phase 1. Taxonomy Metadata 추가</h3>
+  <p><strong>목표:</strong> 현재 candidate를 유지하면서 분류 정보만 명확히 추가한다.</p>
+  <pre><code>new metadata:
+- validation_category
+- query_subtype
+- calculation_subtype
+- automation_scope
+- expected_query_message_label
+- depends_on_item_id
+- expected_calculated_value
+- limitation_reason</code></pre>
+  <p>이 단계에서는 dependency graph를 완성하지 않는다. 기존 candidate에 metadata enrichment를 먼저 적용한다.</p>
+
+  <h3>Phase 2. Query / Availability Loop 분리</h3>
+  <p><strong>목표:</strong> 결과 해석을 단순화한다.</p>
+  <ul>
+    <li><code>run_query_discovery_loop()</code>: query/range/date/option consistency 전용.</li>
+    <li><code>run_availability_discovery_loop()</code>: availability 전용.</li>
+    <li>기존 <code>run_rule_discovery_loop()</code>는 wrapper로 유지.</li>
+    <li>출력 표에서 내부 target 컬럼은 숨긴다.</li>
+  </ul>
+
+  <h3>Phase 3. Calculation Audit 및 Runtime 기반</h3>
+  <p><strong>목표:</strong> 자동계산/자동연동 검증 준비를 한다.</p>
+  <ul>
+    <li><code>collect_calculation_items()</code> 추가.</li>
+    <li><code>_extract_row_value(snapshot, row_label)</code> 구현.</li>
+    <li><code>AGE</code>, Breast Q 총합, RASCH를 calculation candidate 또는 audit record로 만든다.</li>
+    <li>초기에는 calculation을 실행하지 않고 audit/report로만 출력해도 된다.</li>
+  </ul>
+
+  <h3>Phase 4. Calculation-derived Query 지원</h3>
+  <p><strong>목표:</strong> AGE처럼 계산값 기반 query를 안정적으로 검증한다.</p>
+  <pre><code>D_DM_1:
+  RFICDAT + BRTHDAT -> AGE
+
+D_DM_1_2:
+  AGE&lt;22 -> Query [나이]</code></pre>
+  <ul>
+    <li>query candidate 안에 calculation dependency metadata를 둔다.</li>
+    <li>runtime에서 expected calculated value를 중간 확인한 뒤 query 관찰로 넘어간다.</li>
+    <li>계산값 mismatch와 query mismatch를 구분해 기록한다.</li>
+  </ul>
+
+  <h3>Phase 5. Cross-page / Cross-visit Query 지원</h3>
+  <p><strong>목표:</strong> setup page 입력 후 target page query를 관찰한다.</p>
+  <pre><code>workflow:
+1. setup_steps_before_target 실행
+2. 필요한 page/visit로 go_to_page 또는 pause
+3. source 값 입력
+4. 필요 시 save
+5. target page 이동
+6. target 값 입력
+7. save
+8. Query [target label] 관찰
+9. PASS/FAIL 판정</code></pre>
+  <p>이 단계에서 필요하면 <code>dependency_graph.py</code>와 <code>cross_page_planner.py</code>를 만든다.</p>
+
+  <h3>Phase 6. Appendable Table / Complex COUNT 지원</h3>
+  <p><strong>목표:</strong> AE/MH 등 반복 테이블과 COUNT/ROW/SIBLING 조건을 다룬다.</p>
+  <ul>
+    <li>append row 생성 또는 row index 선택 기능 필요.</li>
+    <li><code>SIBLING</code>, <code>ROW_INDEX</code>, <code>COUNT(...)</code> 조건 해석 필요.</li>
+    <li>초기에는 manual review로 두고, 별도 개발 과제로 분리한다.</li>
+  </ul>
+
+  <h2>6. Taxonomy 제안</h2>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Values</th><th>설명</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>validation_category</code></td>
+        <td><code>query</code>, <code>availability</code>, <code>calculation</code>, <code>auto_link</code>, <code>auto_generation</code>, <code>save_block</code>, <code>manual_review</code></td>
+        <td>DVS validation의 상위 분류.</td>
+      </tr>
+      <tr>
+        <td><code>query_subtype</code></td>
+        <td><code>range_numeric</code>, <code>range_age</code>, <code>date_window</code>, <code>date_order</code>, <code>option_consistency</code>, <code>cross_page_consistency</code>, <code>missing_or_required</code>, <code>derived_query</code></td>
+        <td>query 안에서 실제 검증 성격을 구분.</td>
+      </tr>
+      <tr>
+        <td><code>automation_scope</code></td>
+        <td><code>current_page_only</code>, <code>browser_assisted_cross_page</code>, <code>static_only</code>, <code>manual_review</code></td>
+        <td>현재 자동화 범위.</td>
+      </tr>
+      <tr>
+        <td><code>limitation_reason</code></td>
+        <td><code>cross_page_reference</code>, <code>cross_visit_reference</code>, <code>calculation_prerequisite</code>, <code>auto_link_prerequisite</code>, <code>availability_prerequisite</code>, <code>appendable_table_required</code>, <code>target_row_not_found</code>, <code>source_row_not_found</code>, <code>option_not_found</code>, <code>unsupported_expression</code>, <code>browser_navigation_required</code>, <code>manual_review_required</code></td>
+        <td>자동화 제한 사유 표준값.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>7. 샘플 DVS별 적용</h2>
+  <table>
+    <thead>
+      <tr><th>DVS</th><th>현재 코드 위치</th><th>분류</th><th>우선 처리</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>D_DM_1</code></td>
+        <td><code>pages/page_120_DM.ts</code> / <code>AGE.calculate</code></td>
+        <td><code>calculation / age</code></td>
+        <td>Phase 3 audit, Phase 4 runtime 검증.</td>
+      </tr>
+      <tr>
+        <td><code>D_DM_1_2</code></td>
+        <td><code>triggers/trigger_120_DM.ts</code></td>
+        <td><code>query / range_age / derived_query</code></td>
+        <td>Phase 1 metadata, Phase 4 calculation-derived query.</td>
+      </tr>
+      <tr>
+        <td><code>D_PY_3</code></td>
+        <td><code>triggers/trigger_query.ts</code>, PE trigger</td>
+        <td><code>query / range_numeric</code></td>
+        <td>Phase 1. 현재 page query로 우선 안정화.</td>
+      </tr>
+      <tr>
+        <td><code>D_BU_2</code></td>
+        <td>BU trigger / BUDAT-SVDAT 조건</td>
+        <td><code>query / date_window</code></td>
+        <td>Phase 5. source SVDAT dependency를 명확히 분리.</td>
+      </tr>
+      <tr>
+        <td><code>D_BQ_13</code></td>
+        <td><code>pages/page_420_BQ.ts</code> / SUM calculate</td>
+        <td><code>calculation / sum_score</code></td>
+        <td>Phase 3 audit.</td>
+      </tr>
+      <tr>
+        <td><code>D_BQ_14</code></td>
+        <td><code>pages/page_420_BQ.ts</code> / CHOICE lookup</td>
+        <td><code>auto_link / rasch_score</code></td>
+        <td>Phase 3 audit, Phase 6 이후 runtime 검토.</td>
+      </tr>
+      <tr>
+        <td><code>D_BQ_2</code></td>
+        <td><code>triggers/trigger_420_BQ.ts</code></td>
+        <td><code>query / date_window</code></td>
+        <td>Phase 5 cross-page/date-window 지원.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>8. 파일별 작업 계획</h2>
+  <table>
+    <thead>
+      <tr><th>파일</th><th>작업</th><th>Phase</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>crf/runner.py</code></td>
+        <td><code>query_cases()</code>, <code>build_query_cases_for_trigger()</code> audit 출력 및 metadata 전달 확장.</td>
+        <td>0-2</td>
+      </tr>
+      <tr>
+        <td><code>crf/simulator.py</code></td>
+        <td>기존 <code>extract_input_variants()</code> 결과에 dependency/source metadata 추가. date window boundary 보강.</td>
+        <td>1, 5</td>
+      </tr>
+      <tr>
+        <td><code>crf/value_generators/age.py</code></td>
+        <td>AGE lower/valid boundary 생성 검증. expected calculated value metadata 반환 검토.</td>
+        <td>0, 4</td>
+      </tr>
+      <tr>
+        <td><code>crf/extractor.py</code></td>
+        <td>이미 calculate 추출 중. 추가 수정은 최소화하고 audit에서 활용.</td>
+        <td>0, 3</td>
+      </tr>
+      <tr>
+        <td><code>crf/parser.py</code></td>
+        <td><code>can_parse()</code>를 단순 True/False가 아니라 parse scope/limitation reason으로 확장 검토.</td>
+        <td>1, 5</td>
+      </tr>
+      <tr>
+        <td><code>crf/rule_discovery.py</code></td>
+        <td>candidate schema metadata 추가. current-page 필터에서 빠지는 cross-page case를 limitation/audit로 보존.</td>
+        <td>1-2</td>
+      </tr>
+      <tr>
+        <td><code>crf/rule_discovery_runtime.py</code></td>
+        <td>query loop와 availability loop 분리. setup step 실행, calculated value 확인 함수 추가.</td>
+        <td>2-5</td>
+      </tr>
+      <tr>
+        <td><code>crf/org_notebook.py</code></td>
+        <td>query/availability/calculation/cross-page notebook 분리 생성.</td>
+        <td>2-5</td>
+      </tr>
+      <tr>
+        <td><code>crf/dependency_graph.py</code></td>
+        <td>Phase 2 이후 필요 시 신규 생성. 처음부터 만들지 않는다.</td>
+        <td>5</td>
+      </tr>
+      <tr>
+        <td><code>crf/cross_page_planner.py</code></td>
+        <td>Phase 2 이후 필요 시 신규 생성. 기존 runner/simulator 확장으로 부족할 때만 만든다.</td>
+        <td>5</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>9. 테스트 전략</h2>
+  <ul>
+    <li><code>test_query_case_audit.py</code>: 주요 DVS별 <code>runner.query_cases()</code> step 생성 확인.</li>
+    <li><code>test_candidate_taxonomy.py</code>: candidate metadata 필드와 taxonomy 값 검증.</li>
+    <li><code>test_calculation_items.py</code>: <code>AGE</code>, BQ 총합, RASCH calculate 추출 확인.</li>
+    <li><code>test_rule_discovery_runtime.py</code>: query/availability loop 분리 후 기존 동작 유지.</li>
+    <li>수동 검증: DM 현재 page에서 <code>D_DM_1_2</code> 나이 query, PE <code>D_PY_3</code> 신장 query, BU <code>D_BU_2</code> date window.</li>
+  </ul>
+
+  <h2>10. 다음 작업 체크리스트</h2>
+  <table>
+    <thead>
+      <tr><th>우선순위</th><th>작업</th><th>완료 기준</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>P0</td>
+        <td>주요 DVS 7개에 대한 <code>runner.query_cases()</code> audit script 작성</td>
+        <td>각 DVS가 생성 실패/필터링 실패/runtime 실패 중 어디인지 구분됨.</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>candidate metadata taxonomy 추가</td>
+        <td>DM/PE/BU/BQ 샘플 candidate에 <code>validation_category</code>, <code>query_subtype</code>, <code>automation_scope</code> 포함.</td>
+      </tr>
+      <tr>
+        <td>P0</td>
+        <td>query loop와 availability loop 분리</td>
+        <td>query 결과에 availability 컬럼이 섞이지 않고, availability 결과에 query count가 섞이지 않음.</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>calculation field audit</td>
+        <td>AGE/BQ 총합/RASCH가 별도 목록으로 출력됨.</td>
+      </tr>
+      <tr>
+        <td>P1</td>
+        <td>AGE calculation-derived query runtime 보강</td>
+        <td>생년월일 입력 후 expected AGE와 Query [나이]를 함께 확인.</td>
+      </tr>
+      <tr>
+        <td>P2</td>
+        <td>date window boundary 자동 생성 보강</td>
+        <td>BU/BQ/LB 등 날짜 window rule에서 query/no-query boundary 후보 생성.</td>
+      </tr>
+      <tr>
+        <td>P3</td>
+        <td>appendable table 지원</td>
+        <td>AE/MH 반복 테이블 조건을 candidate 또는 명확한 manual workflow로 처리.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>11. 최종 권장 사항</h2>
+  <div class="note">
+    이번 확장은 dependency graph를 바로 새로 만드는 프로젝트가 아니라,
+    기존 CDMS-Agent의 runner/simulator가 이미 생성하는 정보를 보존하고 metadata화하는 작업부터 시작해야 한다.
+    그래야 현재 동작하는 DM/PE/BU 시연 흐름을 깨지 않고 cross-page, calculation, auto-link로 확장할 수 있다.
+  </div>
+</body>
+</html>

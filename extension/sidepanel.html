@@ -3,41 +3,86 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CDM Agent</title>
+    <title>CDMS Agent</title>
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
     <main class="panel">
+
       <header class="panel__header">
-        <h1>CDM Agent</h1>
-        <p>Local-first CDMS validation bridge</p>
+        <div>
+          <h1>CDMS Agent</h1>
+          <p>CDMS Validation Bridge</p>
+        </div>
+        <button id="reconnectBtn" class="btn btn--warn" title="Force reconnect WebSocket to daemon">⟳ Reconnect</button>
       </header>
 
+      <!-- ── Connection Status ── -->
       <section class="panel__section">
-        <label class="field">
-          <span>Daemon Origin</span>
-          <input id="daemonOrigin" type="text" value="http://127.0.0.1:3100" />
-        </label>
-        <button id="saveOrigin">Apply</button>
+        <div class="section-head">
+          <h2>Connection Status</h2>
+          <span class="update-time" id="updateTime">–</span>
+        </div>
+
+        <div class="indicators">
+          <div class="indicator">
+            <span class="dot" id="dot-ws"></span>
+            <div class="indicator__text">
+              <span class="indicator__label">WebSocket</span>
+              <span class="indicator__detail" id="detail-ws">–</span>
+            </div>
+          </div>
+          <div class="indicator">
+            <span class="dot" id="dot-daemon"></span>
+            <div class="indicator__text">
+              <span class="indicator__label">Daemon HTTP</span>
+              <span class="indicator__detail" id="detail-daemon">–</span>
+            </div>
+          </div>
+          <div class="indicator">
+            <span class="dot" id="dot-client"></span>
+            <div class="indicator__text">
+              <span class="indicator__label">Client Registered</span>
+              <span class="indicator__detail" id="detail-client">–</span>
+            </div>
+          </div>
+        </div>
       </section>
 
+      <!-- ── Active Page ── -->
       <section class="panel__section">
-        <div id="status" class="status status--idle">Disconnected</div>
-        <button id="refreshState">Refresh</button>
-        <button id="inspectPage">Inspect Active Page</button>
+        <div class="section-head">
+          <h2>Active Page</h2>
+          <button id="inspectPage" class="btn btn--sm">Inspect</button>
+        </div>
+        <table class="info-table">
+          <tr><td>Page</td><td id="infoPage">–</td></tr>
+          <tr><td>URL</td><td id="infoUrl" class="mono">–</td></tr>
+          <tr><td>Rows</td><td id="infoRows">–</td></tr>
+          <tr><td>Invalid</td><td id="infoInvalid">–</td></tr>
+          <tr id="infoErrorRow" style="display:none"><td>Error</td><td id="infoError" class="error-text">–</td></tr>
+        </table>
       </section>
 
+      <!-- ── Daemon Origin ── -->
       <section class="panel__section">
-        <h2>Last Snapshot</h2>
-        <pre id="snapshot"></pre>
+        <h2>Daemon Origin</h2>
+        <div class="row-input">
+          <input id="daemonOrigin" type="text" value="http://127.0.0.1:3200" />
+          <button id="saveOrigin" class="btn">Apply</button>
+        </div>
       </section>
 
+      <!-- ── Events (collapsible) ── -->
       <section class="panel__section">
-        <h2>Events</h2>
-        <pre id="events"></pre>
+        <div class="section-head">
+          <h2>Events</h2>
+          <button id="toggleEvents" class="btn btn--sm">Show</button>
+        </div>
+        <pre id="events" class="hidden"></pre>
       </section>
+
     </main>
-
     <script src="sidepanel.js"></script>
   </body>
 </html>

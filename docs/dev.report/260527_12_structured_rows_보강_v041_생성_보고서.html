@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>260527_12_structured_rows_보강_v041_생성_보고서</title>
+  <style>
+    body { font-family: "Malgun Gothic", Arial, sans-serif; margin: 40px; color: #202124; line-height: 1.65; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #ddd; padding: 8px 10px; vertical-align: top; }
+    th { background: #f5f5f5; width: 230px; }
+    code { background: #f6f8fa; padding: 2px 5px; border-radius: 4px; }
+    .note { background: #fff8e1; border-left: 4px solid #f9ab00; padding: 10px 12px; }
+  </style>
+</head>
+<body>
+  <h1>structured rows 보강 및 v0.4.1 생성 보고서</h1>
+  <p><strong>작성일:</strong> 2026-05-27</p>
+
+  <h2>목표</h2>
+  <p>
+    이번 수정의 목표는 DVS/query rule 검증이 아니라, 연결된 브라우저의 현재 페이지에서
+    실제 입력 가능한 row를 더 정확히 확정하고 browser-assisted notebook에 입력 명령을 생성하는 것이다.
+    query expected result, <code>has_query</code>, <code>check_result</code>, <code>CASE_CHECK</code>는 계속 제외했다.
+  </p>
+
+  <h2>수정 파일</h2>
+  <table>
+    <tr><th>Extension runner</th><td><code>extension/browser-runner-core.js</code></td></tr>
+    <tr><th>Extension service worker</th><td><code>extension/service-worker.js</code></td></tr>
+    <tr><th>Daemon 배포본</th><td><code>daemon/public/cdm-agent/chrome-extension/browser-runner-core.js</code><br><code>daemon/public/cdm-agent/chrome-extension/service-worker.js</code><br><code>daemon/public/cdm-agent/shared/browser-runner-core.js</code></td></tr>
+    <tr><th>Notebook generator</th><td><code>src/cdm_agent_client/crf/notebook.py</code></td></tr>
+  </table>
+
+  <h2>주요 변경</h2>
+  <table>
+    <tr>
+      <th>structuredRows 보강</th>
+      <td>
+        visible text 후보가 아니라 실제 control을 기준으로 row 후보를 잡도록 변경했다.
+        가까운 <code>tr</code>을 우선 row container로 사용하고, 없으면 wrapper/section/parent 계층을 사용한다.
+      </td>
+    </tr>
+    <tr>
+      <th>rowLabel 정리</th>
+      <td>
+        option 단독 텍스트인 <code>예</code>, <code>아니요</code>, <code>남성</code>, <code>여성</code>,
+        <code>기타</code> 등이 rowLabel로 확정되지 않도록 필터링했다.
+        bracket label인 <code>[좌측 유방] 수술 목적</code>, <code>[우측 유방] 수술 목적</code>은 보존했다.
+      </td>
+    </tr>
+    <tr>
+      <th>row 상태 필드</th>
+      <td>
+        structured row에 <code>visible</code>, <code>editable</code>, <code>disabled</code>,
+        <code>row_visibility</code>, <code>row_availability</code>, <code>row_disability</code>를 포함하도록 했다.
+      </td>
+    </tr>
+    <tr>
+      <th>radio 클릭 범위 제한</th>
+      <td>
+        <code>getRadioLabelCoords(rowLabel, optionLabel)</code>가 document 전체가 아니라
+        <code>findRow(rowLabel)</code> 내부에서만 option을 찾도록 수정했다.
+        <code>예/아니요</code> 중복 row에서 다른 row를 클릭하는 위험을 줄였다.
+      </td>
+    </tr>
+    <tr>
+      <th>CDP 클릭 검증</th>
+      <td>
+        service worker가 CDP로 radio를 클릭한 뒤 <code>isRadioOptionSelected()</code>로 checked 상태를 확인한다.
+        검증 실패 시 <code>noop</code>으로 넘기지 않고 runner의 <code>selectRadio</code> fallback step을 유지한다.
+      </td>
+    </tr>
+    <tr>
+      <th>notebook 생성 보강</th>
+      <td>
+        <code>_browser_input_cases()</code>는 visible/editable row를 우선 사용하되,
+        <code>생년월일</code>, <code>비가임 사유</code>처럼 runner skip/특수 입력이 필요한 row는 입력 step에 포함되도록 보정했다.
+        <code>_preferred_option()</code>은 <code>해당사항 없음</code>, <code>아니요</code>, <code>예</code> 순서를 기본으로 하고,
+        가임 여부/성별/수유 여부/좌우측 수술 목적/유방암 병력은 명시 우선값을 사용한다.
+      </td>
+    </tr>
+  </table>
+
+  <h2>v0.4.1 생성 결과</h2>
+  <p>
+    생성 파일:
+    <code>C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB\CDMS-Agent_test_v0.4.1.ipynb</code>
+  </p>
+  <table>
+    <tr><th>포함 확인</th><td>생년월일, 성별, 가임 여부, 비가임 사유, 수유 여부, [좌측 유방] 수술 목적, [우측 유방] 수술 목적, 흡연력, 음주력, 유방암 병력이 있습니까? 모두 포함</td></tr>
+    <tr><th>추가 포함</th><td>현재 inspect에서 확인된 <code>부위</code>, <code>유방암 절제 수술력이 있습니까?</code>도 입력 step 후보로 포함</td></tr>
+    <tr><th>금지 문자열</th><td><code>row_text</code>, <code>row_editable</code>, <code>row_locked</code>, <code>has_query</code>, <code>check_result</code>, <code>CASE_CHECK</code>, <code>Expected Result</code>, query 자동 판정 문구 모두 0건</td></tr>
+  </table>
+
+  <h2>검증</h2>
+  <table>
+    <tr><th>JS 문법 검사</th><td><code>node --check extension/browser-runner-core.js</code> 통과</td></tr>
+    <tr><th>Service worker 문법 검사</th><td><code>node --check extension/service-worker.js</code> 통과</td></tr>
+    <tr><th>Python compile</th><td><code>compileall</code> 통과</td></tr>
+    <tr><th>Pytest</th><td><code>38 passed</code></td></tr>
+  </table>
+
+  <h2>남은 한계</h2>
+  <p class="note">
+    table/grid의 세부 cell label 조합은 아직 완전하지 않다.
+    예를 들어 <code>부위 / 병기 확인일</code>, <code>부위 / Tumor</code>, <code>부위 / Nodes</code>처럼
+    row header와 column header를 안정적으로 조합하는 로직은 추가 보강 대상이다.
+    현재 v0.4.1은 우선 누락되던 주요 radio/input row를 더 많이 포함하는 데 초점을 맞췄다.
+  </p>
+
+  <h2>운영 주의</h2>
+  <p>
+    runner version이 변경되었고 service worker도 수정되었으므로 Chrome extension 재로드가 필요하다.
+    재로드 전에는 브라우저에 이전 runner/service worker가 남아 radio row 내부 클릭 검증이 적용되지 않을 수 있다.
+  </p>
+</body>
+</html>

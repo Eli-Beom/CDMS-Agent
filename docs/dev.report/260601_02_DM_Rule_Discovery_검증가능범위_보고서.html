@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>DM Rule Discovery 검증 가능 범위 보고서</title>
+  <style>
+    body { font-family: "Segoe UI", "Malgun Gothic", Arial, sans-serif; margin: 32px; color: #1f2933; line-height: 1.55; }
+    h1 { font-size: 24px; margin: 0 0 8px; }
+    h2 { font-size: 18px; margin: 28px 0 10px; border-bottom: 1px solid #d8dee4; padding-bottom: 6px; }
+    p { margin: 8px 0; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 13px; }
+    th, td { border: 1px solid #d8dee4; padding: 8px 10px; vertical-align: top; }
+    th { background: #eef2f6; text-align: left; }
+    .meta { color: #5b6773; font-size: 13px; }
+    .ok { color: #0b6b3a; font-weight: 600; }
+    .partial { color: #8a5a00; font-weight: 600; }
+    .no { color: #a12828; font-weight: 600; }
+    code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; }
+    .diagram { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; margin: 14px 0 22px; }
+    .node { border: 1px solid #c9d1d9; border-radius: 8px; padding: 12px; background: #ffffff; min-width: 160px; flex: 1; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+    .node strong { display: block; margin-bottom: 6px; color: #0f3b66; }
+    .arrow { align-self: center; color: #667085; font-weight: 700; }
+    .flow { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 8px; margin: 14px 0 22px; }
+    .step { border: 1px solid #d0d7de; border-radius: 8px; padding: 10px; background: #f8fafc; font-size: 12px; }
+    .step .num { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: #0f3b66; color: #fff; text-align: center; line-height: 22px; margin-right: 4px; }
+    @media (max-width: 900px) { .flow { grid-template-columns: repeat(2, minmax(120px, 1fr)); } .arrow { display: none; } }
+  </style>
+</head>
+<body>
+  <h1>DM Rule Discovery 검증 가능 범위 보고서</h1>
+  <p class="meta">작성일: 2026-06-01 / 대상 과제: 20260325_PRACTICE_GSB / 대상 페이지: DM, 인구학적 조사</p>
+
+  <h2>1. 개발 배경</h2>
+  <p>
+    현재 DM 프로세스는 EDC development와 EDC validation을 포함해 약 8주가 소요된다.
+    이 중 EDC validation 단계의 DVS 작성과 DVS validation 업무가 워킹데이 기준 약 20~25일,
+    즉 약 4주를 차지한다.
+  </p>
+  <p>
+    CDMS-Agent 개발 목적은 기존 DVS 문서를 그대로 복제하는 것이 아니라,
+    CRF 코드와 실제 EDC 화면을 함께 해석해 DVS ID별 검증 가능성을 자동 산출하고,
+    반복적인 DVS 작성 및 validation 업무를 줄이거나 제거하는 것이다.
+  </p>
+
+  <h2>2. CDMS-Agent 구성요소와 역할</h2>
+  <div class="diagram">
+    <div class="node"><strong>CRF Code</strong>page_*.ts<br>trigger_*.ts</div>
+    <div class="arrow">→</div>
+    <div class="node"><strong>Python Package</strong>Parser<br>CRFRunner<br>Rule Builder</div>
+    <div class="arrow">→</div>
+    <div class="node"><strong>Rule Discovery JSON</strong>DVS ID별 실행 후보</div>
+    <div class="arrow">→</div>
+    <div class="node"><strong>Notebook Runtime</strong>candidate loop<br>PASS/FAIL 산출</div>
+    <div class="arrow">↔</div>
+    <div class="node"><strong>Daemon + Extension</strong>EDC DOM inspect<br>입력/Save 실행</div>
+  </div>
+  <table>
+    <tr><th>구성요소</th><th>역할</th></tr>
+    <tr>
+      <td>Python package</td>
+      <td>CRF 코드 파싱, trigger/query/availability 후보 생성, notebook 생성, Rule Discovery runtime 실행을 담당한다.</td>
+    </tr>
+    <tr>
+      <td>CRFRunner / Parser</td>
+      <td><code>page_*.ts</code>, <code>trigger_*.ts</code>를 읽어 page item, item label, trigger, availability spec을 구조화한다.</td>
+    </tr>
+    <tr>
+      <td>Rule Discovery JSON</td>
+      <td>현재 페이지에서 실행할 DVS ID별 후보 목록이다. Query, range_query, availability가 같은 산출물 체계에 들어간다.</td>
+    </tr>
+    <tr>
+      <td>Runtime loop</td>
+      <td>JSON candidate를 하나씩 실행한다. Query는 입력 후 Save 및 inspect, availability는 Save 없이 before/after inspect를 수행한다.</td>
+    </tr>
+    <tr>
+      <td>Daemon</td>
+      <td>Python client와 browser extension 사이의 API bridge 역할을 한다. Python 명령을 extension runner가 실행할 수 있는 payload로 전달한다.</td>
+    </tr>
+    <tr>
+      <td>Browser extension</td>
+      <td>실제 EDC 화면 DOM을 inspect하고, row 입력, radio 선택, Save 클릭, query row 수집, row_availability 확인을 수행한다.</td>
+    </tr>
+    <tr>
+      <td>Generated notebook</td>
+      <td>사용자가 한 candidate씩 실행하고 화면 피드백을 보면서 Rule Discovery 결과를 축적하는 실행 하네스다.</td>
+    </tr>
+  </table>
+
+  <h2>3. 작동 원리</h2>
+  <div class="flow">
+    <div class="step"><span class="num">1</span><strong>Page 인식</strong><br>browser pathname에서 현재 page_id 확정</div>
+    <div class="step"><span class="num">2</span><strong>CRF 해석</strong><br>item, trigger, availability spec 수집</div>
+    <div class="step"><span class="num">3</span><strong>Row 매칭</strong><br>EDC rowLabel과 CRF item label 연결</div>
+    <div class="step"><span class="num">4</span><strong>JSON 생성</strong><br>DVS ID별 candidate 작성</div>
+    <div class="step"><span class="num">5</span><strong>Loop 실행</strong><br>query는 Save, availability는 before/after inspect</div>
+    <div class="step"><span class="num">6</span><strong>결과 산출</strong><br>Result는 PASS/FAIL만 기록</div>
+  </div>
+  <table>
+    <tr><th>단계</th><th>설명</th></tr>
+    <tr><td>1. 현재 페이지 인식</td><td>extension inspect에서 browser pathname과 page label을 읽고 현재 페이지를 <code>DM</code>으로 확정한다.</td></tr>
+    <tr><td>2. CRF 코드 해석</td><td>CRF page/trigger 코드에서 item id, label, query trigger, availability spec을 수집한다.</td></tr>
+    <tr><td>3. 화면 row 매칭</td><td>현재 화면의 <code>structured_rows</code>와 CRF item label을 매칭한다. exact label, 공백 제거, bracket prefix 제거, 한글 normalize 기준을 사용한다.</td></tr>
+    <tr><td>4. candidate JSON 생성</td><td>현재 페이지에서 실행 가능한 query/range/availability 후보를 <code>CDMS-Agent_rule_discovery_candidates_DM_v0.2.json</code>에 저장한다.</td></tr>
+    <tr><td>5. loop 실행</td><td>Query candidate는 입력 후 Save 및 inspect를 수행한다. Availability candidate는 Save 없이 control 값을 바꾼 뒤 target row의 availability 변화를 inspect한다.</td></tr>
+    <tr><td>6. 결과 판정</td><td>내부 관찰값은 Expected Result와 비교하는 데만 사용하고, 최종 <code>Result</code>에는 <code>PASS</code> 또는 <code>FAIL</code>만 표시한다.</td></tr>
+  </table>
+
+  <h2>4. DM 페이지 Trigger/Rule 현황과 커버리지</h2>
+  <table>
+    <tr><th>구분</th><th>CRF 코드 내 DM 기준 총계</th><th>CDMS-Agent 후보 생성</th><th>현재 커버리지</th><th>비고</th></tr>
+    <tr>
+      <td>QUERY</td>
+      <td>11개 DVS ID</td>
+      <td>6개 DVS ID</td>
+      <td class="partial">6/11 후보 생성, 그중 일부는 부분 검증</td>
+      <td>다른 페이지/선행 데이터 참조가 있는 query는 현재 DM 페이지 단독으로 완전 검증하기 어렵다.</td>
+    </tr>
+    <tr>
+      <td>ASSIGN</td>
+      <td>2개</td>
+      <td>0개</td>
+      <td class="no">미커버</td>
+      <td>AGE 등 assign/calculate 결과는 query 관찰에는 사용되지만, assign trigger 자체의 계산 검증은 아직 별도 구현이 필요하다.</td>
+    </tr>
+    <tr>
+      <td>AVAILABILITY</td>
+      <td>5개 item spec</td>
+      <td>3개 item</td>
+      <td class="partial">3/5 후보 생성</td>
+      <td>label이 안정적으로 잡힌 <code>PGNREAS</code>, <code>BMLOC</code>, <code>BSLOC</code>는 커버 가능. label이 비어 있는 table block은 제외됨.</td>
+    </tr>
+    <tr>
+      <td>UNKNOWN</td>
+      <td>1개</td>
+      <td>0개</td>
+      <td class="no">미커버</td>
+      <td>자동 분류 또는 실행 가능한 step 생성 전 manual review 필요.</td>
+    </tr>
+  </table>
+
+  <h2>5. 현재 DM 페이지에서 검증 가능한 DVS ID</h2>
+  <table>
+    <tr><th>DVS ID</th><th>rule_type</th><th>item_id</th><th>item_label</th><th>상태</th><th>근거</th></tr>
+    <tr><td>D_DM_4</td><td>query</td><td>BRTHDAT</td><td>생년월일</td><td class="ok">가능</td><td>현재 화면 row와 CRF item이 매칭되고, query 발생/미발생 입력 후보가 모두 생성됨.</td></tr>
+    <tr><td>D_DM_5</td><td>query</td><td>OPINDCL</td><td>[좌측 유방] 수술 목적</td><td class="partial">부분 가능</td><td>query 발생 후보는 생성됨. 미발생 후보 일부 option 매칭은 제한됨.</td></tr>
+    <tr><td>D_DM_1_2</td><td>range_query</td><td>BRTHDAT</td><td>생년월일</td><td class="partial">부분 가능</td><td>AGE&lt;22 조건은 생년월일 입력으로 유도 가능하나, 조건 내 참조값 <code>SV.SVDTC</code>는 현재 DM 페이지에 없어 완전 검증은 제한됨.</td></tr>
+    <tr><td>D_DM_7_1</td><td>query</td><td>OPINDCL</td><td>[좌측 유방] 수술 목적</td><td class="partial">부분 가능</td><td>query 발생 후보는 생성됨. 미발생 후보에서 <code>BMYN=3</code> option이 화면에 없어 정상 반대조건 생성이 제한됨.</td></tr>
+    <tr><td>D_DM_14_1</td><td>query</td><td>BMLOC</td><td>부위</td><td class="ok">가능</td><td>좌/우 부위 option을 현재 화면에서 찾을 수 있고 query 발생/미발생 후보가 생성됨.</td></tr>
+    <tr><td>PGNREAS</td><td>availability</td><td>PGNREAS</td><td>비가임 사유</td><td class="ok">가능</td><td><code>PGYN = 2</code> 조건을 가임 여부 예/아니요 전환으로 before/after inspect 가능.</td></tr>
+    <tr><td>BMLOC</td><td>availability</td><td>BMLOC</td><td>부위</td><td class="ok">가능</td><td><code>BMYN = 1</code> 조건을 유방암 병력 예/아니요 전환으로 before/after inspect 가능.</td></tr>
+    <tr><td>BSLOC</td><td>availability</td><td>BSLOC</td><td>부위</td><td class="ok">가능</td><td><code>BSYN = 1</code> 조건을 유방암 절제 수술력 예/아니요 전환으로 before/after inspect 가능.</td></tr>
+  </table>
+
+  <h2>6. 현재 DM 페이지 단독 검증이 제한되는 DVS ID</h2>
+  <p>
+    아래 항목은 규칙 자체가 틀렸다는 의미가 아니다. 현재 browser-assisted loop가 열린 DM 화면 하나만 대상으로 작동하기 때문에,
+    다른 페이지에 존재하는 데이터, 선행 visit/section 데이터, assign/calculate trigger 결과, table/grid 내부 field를 아직 안정적으로 만들거나 확인하지 못한다는 의미다.
+  </p>
+  <table>
+    <tr><th>DVS ID</th><th>상태</th><th>제한 사유</th><th>필요 조치</th></tr>
+    <tr><td>D_BM_1</td><td class="partial">부분 가능</td><td>현재 후보는 생성되지만 실제 rule 참조 필드 <code>DM.BMDAT</code>를 현재 화면 row로 안정 매칭하지 못함.</td><td>table/grid row와 item id 매칭 보강 필요.</td></tr>
+    <tr><td>D_BM_2</td><td class="no">불가능</td><td><code>DM.BMDAT</code> 참조 필드가 현재 row 매칭에서 확인되지 않음.</td><td>유방암 병력 grid 날짜 field 추출 필요.</td></tr>
+    <tr><td>D_BS_1</td><td class="no">불가능</td><td><code>DM.BMDAT</code>, <code>DM.BSDAT</code> 참조 필드를 찾지 못함.</td><td>병력/수술력 appendable table의 날짜 field item id 연결 필요.</td></tr>
+    <tr><td>D_BS_2</td><td class="no">불가능</td><td><code>DM.BMDAT</code>, <code>DM.BSDAT</code> 참조 필드를 찾지 못함.</td><td>appendable table의 column header + row context 조합 label 매칭 필요.</td></tr>
+    <tr><td>D_BS_3</td><td class="no">불가능</td><td><code>DM.BSDAT</code> 참조 필드를 찾지 못함.</td><td>수술력 날짜 입력 control과 CRF item id 연결 필요.</td></tr>
+    <tr><td>D_BM_3</td><td class="no">불가능</td><td><code>DM.BMDAT</code>, <code>DM.BMTNMDAT</code> 참조 필드를 찾지 못함.</td><td>병기 확인일 등 grid 날짜 field 매칭 필요.</td></tr>
+    <tr><td>BHTB</td><td class="no">제외</td><td>availability item은 있으나 label이 비어 있고 현재 structured row에서 target row를 안정적으로 확정하지 못함.</td><td>appendable table block의 target row 정의 필요.</td></tr>
+    <tr><td>BTTB</td><td class="no">제외</td><td>availability item은 있으나 label이 비어 있고 현재 structured row에서 target row를 안정적으로 확정하지 못함.</td><td>appendable table block의 target row 정의 필요.</td></tr>
+  </table>
+
+  <h2>7. 산출물</h2>
+  <table>
+    <tr><th>파일</th><th>역할</th></tr>
+    <tr><td><code>CDMS-Agent_test_v0.6.1.ipynb</code></td><td>현재 DM 페이지 기준 Rule Discovery loop 실행 노트북.</td></tr>
+    <tr><td><code>CDMS-Agent_rule_discovery_candidates_DM_v0.2.json</code></td><td>query, range_query, availability 후보가 함께 들어 있는 실행 후보 JSON.</td></tr>
+    <tr><td><code>CDMS-Agent_rule_discovery_DM_v0.2.csv</code></td><td>loop 실행 후 PASS/FAIL 결과를 저장할 CSV 경로.</td></tr>
+  </table>
+
+  <h2>8. 다음 개선 방향</h2>
+  <p>
+    현재 DM 페이지에서는 단순 radio/date 기반 query와 availability 조건은 자동화 가능성이 높다.
+    다음 개선 우선순위는 다른 페이지/선행 데이터 참조, assign/calculate trigger, appendable table 내부 field 매칭을 보강하는 것이다.
+    특히 유방암 병력/수술력 appendable table의 날짜 field와 item id 연결이 확보되면 현재 불가능으로 분류된 D_BM, D_BS 계열 query의 커버리지가 높아진다.
+  </p>
+  <p>
+    appendable table은 일반 row와 달리 row header, column header, 반복 row index, add/remove row 동작이 함께 얽혀 있다.
+    따라서 별도 개발 축으로 분리해 row 생성, 반복 row 선택, column별 control 탐색, item id 매칭, candidate step 생성을 단계적으로 구현해야 한다.
+  </p>
+</body>
+</html>

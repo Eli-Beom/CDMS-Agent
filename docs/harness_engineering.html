@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CDMS-Agent Harness Engineering</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --ink: #17212f;
+      --muted: #5f6b7a;
+      --line: #d8dee8;
+      --soft: #eef3f8;
+      --blue: #1d5fd6;
+      --green: #007a5a;
+      --amber: #9a6700;
+      --red: #b42318;
+      --code-bg: #edf1f7;
+      --code-dark: #111827;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+      line-height: 1.62;
+    }
+    main { max-width: 1120px; margin: 0 auto; padding: 38px 24px 72px; }
+    header { border-bottom: 1px solid var(--line); padding: 22px 0 24px; }
+    h1 { margin: 0 0 10px; font-size: 34px; line-height: 1.18; letter-spacing: 0; }
+    h2 { margin: 42px 0 14px; font-size: 24px; line-height: 1.3; letter-spacing: 0; }
+    h3 { margin: 22px 0 8px; font-size: 18px; letter-spacing: 0; }
+    p { margin: 8px 0 14px; }
+    .lead { max-width: 920px; color: var(--muted); font-size: 17px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 16px 0 8px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    .tag { display: inline-block; margin: 0 6px 6px 0; padding: 2px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); font-size: 13px; }
+    code { padding: 2px 5px; border-radius: 5px; background: var(--code-bg); color: var(--code-dark); font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.92em; }
+    pre { margin: 12px 0 18px; padding: 14px 16px; overflow-x: auto; border-radius: 8px; background: #111827; color: #f9fafb; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; line-height: 1.52; }
+    pre code { padding: 0; background: transparent; color: inherit; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; background: var(--panel); border: 1px solid var(--line); }
+    th, td { border-bottom: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; }
+    th { background: var(--soft); font-weight: 650; }
+    ul { padding-left: 22px; }
+    li { margin: 5px 0; }
+    .note { border-left: 4px solid var(--blue); background: var(--panel); padding: 12px 14px; margin: 16px 0; }
+    .warning { border-left-color: var(--amber); }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>CDMS-Agent Harness Engineering</h1>
+    <p class="lead">
+      CRF/DVS 테스트 자동화는 과제마다 UI와 규칙이 크게 달라집니다. 현재 하네스의 중심은
+      데이터를 장기간 축적해 추천하는 방식이 아니라, CRF 코드와 현재 브라우저 상태를 함께 보고
+      지금 실행 가능한 검증 셀만 만드는 <code>browser-assisted</code> 방식입니다.
+    </p>
+  </header>
+
+  <section>
+    <h2>현재 방향</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Daemon Inspect 확장</h3>
+        <p><code>inspect()</code>가 단순 <code>visible_rows</code>뿐 아니라 row별 <code>editable</code>, <code>disabled</code>, <code>controlType</code>, <code>options</code>를 반환합니다.</p>
+      </div>
+      <div class="card">
+        <h3>자동 생성 셀 보호</h3>
+        <p>생성된 notebook 셀은 입력 전에 <code>row_is_editable()</code>로 현재 UI 상태를 확인하고, 비활성 row는 건너뜁니다.</p>
+      </div>
+      <div class="card">
+        <h3>누적 데이터 제거</h3>
+        <p>SQLite raw log와 pending suggestion 흐름은 현재 active harness에서 제외합니다. 승인된 override JSON만 유지합니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>처리 흐름</h2>
+    <pre><code>CRF TypeScript source
+  -> extract_spec / CRFRunner
+  -> Query candidate cases
+  -> current browser inspect
+  -> structuredRows row-state guard
+  -> generated notebook cells
+  -> step-by-step run
+  -> save
+  -> post-save query check</code></pre>
+    <p>
+      이 흐름은 “모든 DVS rule을 완벽히 코드로 변환”하는 목표가 아닙니다. 우선 현재 페이지에서
+      실제로 누를 수 있는 입력만 수행하고, 저장 후 query 발생 여부를 사람이 확인하기 쉬운 notebook 셀로 나눕니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>하네스 계층</h2>
+    <table>
+      <thead>
+        <tr><th>계층</th><th>목적</th><th>검증 기준</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Doctor harness</td>
+          <td>브라우저 실행 전 CRF 소스 품질 확인</td>
+          <td>duplicate trigger id, unresolved itemId, missing pageId, query/availability trigger 요약</td>
+        </tr>
+        <tr>
+          <td>Inspect harness</td>
+          <td>현재 브라우저 UI 상태 수집</td>
+          <td><code>structuredRows</code>에 row label, editable, disabled, controlType, options 포함</td>
+        </tr>
+        <tr>
+          <td>Generation harness</td>
+          <td>실행 가능한 notebook 셀만 생성</td>
+          <td>현재 page/path와 맞는 case, row-state guard 포함, Python syntax 통과</td>
+        </tr>
+        <tr>
+          <td>Browser smoke harness</td>
+          <td>실제 CDMS 화면에서 단계별 검증</td>
+          <td>입력, save, post-save query check가 셀 단위로 확인 가능</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Inspect 데이터 모델</h2>
+    <pre><code>PageSnapshot
+  visible_rows: list[str]
+  structured_rows: list[dict]
+
+structured_rows item
+  rowLabel: string
+  visible: boolean
+  editable: boolean
+  disabled: boolean
+  controlType: "radio" | "checkbox" | "textarea" | "select" | "input" | "unknown"
+  options: string[]</code></pre>
+    <p>
+      예를 들어 <code>가임 여부</code>에서 <code>예</code>를 선택한 뒤 <code>비가임 사유</code>가 비활성화되면,
+      notebook은 <code>row_is_editable("비가임 사유")</code> 결과를 보고 해당 입력을 건너뛰고 다음 row로 진행합니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>권장 명령</h2>
+    <pre><code>cd C:\Users\SunbeomGwon\CDMS-Agent
+python -m cdm_agent_client.crf doctor C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB
+python -m cdm_agent_client.crf
+
+pytest -q --basetemp .pytest-tmp -p no:cacheprovider</code></pre>
+    <div class="note warning">
+      브라우저 확장 JS를 수정한 뒤에는 Chrome extension 또는 Tampermonkey script를 다시 로드해야
+      현재 브라우저의 <code>inspect()</code> 결과에 <code>structuredRows</code>가 나타납니다.
+    </div>
+  </section>
+
+  <section>
+    <h2>개발 프롬프트 기준</h2>
+    <p>Claude/Codex에게 CRF 자동화 수정을 맡길 때는 다음 조건을 명시합니다.</p>
+    <pre><code>작업은 browser-assisted harness 기준으로 진행한다.
+
+요구사항:
+- SQLite raw accumulation / SuggestionEngine 기반 추천 기능은 active path에 추가하지 않는다.
+- daemon inspect가 structuredRows(rowLabel, editable, disabled, controlType, options)를 반환하게 한다.
+- notebook 생성 셀은 입력 전에 row_is_editable(row label)을 확인한다.
+- 비활성 row는 실패로 보지 않고 SKIP 출력 후 다음 step으로 넘어간다.
+- 저장 후 query 확인은 post-save snapshot 기준으로 한다.
+- 기존 gen_notebook, doctor 동작을 깨뜨리지 않는다.
+
+완료 기준:
+- cdms-crf doctor가 실행된다.
+- 생성 notebook에 row_is_editable guard가 포함된다.
+- pytest가 통과한다.
+- 문서에는 SQL 누적/추천 흐름이 active 기능처럼 설명되지 않는다.</code></pre>
+  </section>
+
+  <section>
+    <h2>제외한 기능</h2>
+    <ul>
+      <li>실행 실패 raw log를 SQLite에 장기 축적하는 흐름</li>
+      <li>누적 로그 기반 pending suggestion 생성/승인 CLI</li>
+      <li>LLM이 과제별 지식을 자동으로 확정해 override JSON에 쓰는 흐름</li>
+    </ul>
+    <p>
+      이 기능들은 나중에 재검토할 수 있지만, 현재 목표인 “되는 것만 자동 실행하고 멈추지 않기”에는
+      브라우저 현재 상태를 직접 읽는 하네스가 더 단순하고 안정적입니다.
+    </p>
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CDMS-Agent CRF Package Guide</title>
+  <style>
+    :root { --bg:#f5f7fa; --panel:#fff; --ink:#17212f; --muted:#5f6b7a; --line:#d8dee8; --soft:#eef3f8; --blue:#1d5fd6; --code:#edf1f7; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif; line-height:1.62; }
+    main { max-width:1120px; margin:0 auto; padding:38px 24px 72px; }
+    header { border-bottom:1px solid var(--line); padding:22px 0 24px; }
+    h1 { margin:0 0 10px; font-size:34px; line-height:1.18; letter-spacing:0; }
+    h2 { margin:42px 0 14px; font-size:24px; line-height:1.3; letter-spacing:0; }
+    h3 { margin:20px 0 8px; font-size:18px; letter-spacing:0; }
+    p { margin:8px 0 14px; }
+    .lead { max-width:920px; color:var(--muted); font-size:17px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; }
+    code { padding:2px 5px; border-radius:5px; background:var(--code); color:#111827; font-family:"Cascadia Mono",Consolas,monospace; font-size:.92em; }
+    pre { margin:12px 0 18px; padding:14px 16px; overflow-x:auto; border-radius:8px; background:#111827; color:#f9fafb; font-family:"Cascadia Mono",Consolas,monospace; font-size:13px; line-height:1.52; }
+    pre code { padding:0; background:transparent; color:inherit; }
+    table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); }
+    th,td { border-bottom:1px solid var(--line); padding:10px 12px; text-align:left; vertical-align:top; }
+    th { background:var(--soft); }
+    .tag { display:inline-block; margin:0 6px 6px 0; padding:2px 8px; border-radius:999px; background:var(--soft); color:var(--muted); font-size:13px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>CDMS-Agent CRF Package Guide</h1>
+    <p class="lead">
+      <code>src/cdm_agent_client/crf</code>는 maven-crfs의 TypeScript CRF 소스를 읽고,
+      현재 브라우저 상태를 보조 정보로 사용해 실행 가능한 notebook 검증 셀을 생성합니다.
+      현재 기본 생성 방식은 <code>browser-assisted</code>입니다.
+    </p>
+  </header>
+
+  <section>
+    <h2>처리 흐름</h2>
+    <pre><code>TypeScript CRF
+  -> extract_spec()
+  -> CRFRunner
+  -> CRFCase / Step / Check
+  -> browser inspect PageSnapshot
+  -> row-state guarded notebook cells</code></pre>
+    <p>
+      과제별 특이사항은 runner에 하드코딩하지 않고, 가능한 범위에서는 CRF 코드와 현재 브라우저 UI를 함께 봅니다.
+      장기 raw 데이터 축적이나 SQLite 기반 추천은 현재 active path에서 제외했습니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>주요 모듈</h2>
+    <table>
+      <thead><tr><th>파일</th><th>역할</th><th>주요 API</th></tr></thead>
+      <tbody>
+        <tr><td><code>extractor.py</code></td><td>TypeScript CRF를 JSON spec으로 추출하고 field map을 만듭니다.</td><td><code>extract_spec</code>, <code>build_field_map</code></td></tr>
+        <tr><td><code>parser.py</code></td><td>trigger와 UI rule을 자동화 가능/수동 검토 대상으로 분류합니다.</td><td><code>classify_triggers</code></td></tr>
+        <tr><td><code>simulator.py</code></td><td>Query 발생/미발생용 입력 후보를 계산합니다.</td><td><code>extract_inputs</code></td></tr>
+        <tr><td><code>runner.py</code></td><td>CRF spec을 바탕으로 <code>CRFCase</code> 목록을 생성합니다.</td><td><code>CRFRunner</code></td></tr>
+        <tr><td><code>notebook.py</code></td><td>case를 Jupyter Notebook 셀로 변환합니다. browser-assisted 모드에서는 row-state guard를 넣습니다.</td><td><code>gen_notebook</code></td></tr>
+        <tr><td><code>doctor.py</code></td><td>중복 trigger id, unresolved item/page, query/availability trigger 합계를 요약합니다.</td><td><code>run_doctor</code></td></tr>
+        <tr><td><code>overrides.py</code></td><td>사람이 승인한 과제별 label/option/precondition override만 JSON으로 관리합니다.</td><td><code>load_overrides</code>, <code>save_overrides</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Browser-Assisted 생성</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>입력 전 guard</h3>
+        <p>생성 셀은 <code>row_is_editable("row label")</code>을 확인한 뒤 입력합니다. 비활성 row는 실패가 아니라 <code>SKIP</code>으로 넘깁니다.</p>
+      </div>
+      <div class="card">
+        <h3>현재 페이지 기준</h3>
+        <p>이미 해당 페이지에 있으면 불필요한 <code>go_to_page()</code> 이동을 하지 않고 현재 화면에서 테스트합니다.</p>
+      </div>
+      <div class="card">
+        <h3>저장 후 query 확인</h3>
+        <p>Query는 입력 즉시가 아니라 <code>click_save()</code> 후 snapshot 기준으로 확인합니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>패키지 구조</h2>
+    <pre><code>src/cdm_agent_client/crf/
+  __init__.py
+  __main__.py
+  cli.py
+  doctor.py
+  extractor.py
+  models.py
+  notebook.py
+  overrides.py
+  parser.py
+  run.py
+  runner.py
+  simulator.py</code></pre>
+    <p>
+      SQLite run store와 suggestion engine 파일은 현재 active 기능에서 제거했습니다.
+      필요한 경우 나중에 별도 실험 브랜치에서 다시 설계합니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>권장 사용</h2>
+    <pre><code>from cdm_agent_client.crf import gen_notebook
+
+gen_notebook(
+    output_path=r"C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB\CDMS-Agent_test_v0.3.2.ipynb",
+    crf_path=r"C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB",
+    generation_mode="browser-assisted",
+    include_query=True,
+    include_visibility=False,
+    include_availability=False,
+    max_case_cells=200,
+)</code></pre>
+    <div>
+      <span class="tag">CRFRunner</span>
+      <span class="tag">gen_notebook</span>
+      <span class="tag">doctor</span>
+      <span class="tag">browser-assisted</span>
+      <span class="tag">structured_rows</span>
+      <span class="tag">JSON overrides</span>
+    </div>
+  </section>
+</main>
+</body>
+</html>

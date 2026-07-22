@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CRF Reviewer – 개발 이력 & 설계 문서</title>
+  <style>
+    :root {
+      --bg:#f5f7fa; --panel:#fff; --ink:#17212f; --muted:#5f6b7a;
+      --line:#d8dee8; --soft:#eef3f8; --blue:#1d5fd6; --code:#edf1f7;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink);
+           font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif; line-height:1.62; }
+    main { max-width:1120px; margin:0 auto; padding:38px 24px 72px; }
+    header { border-bottom:1px solid var(--line); padding:22px 0 24px; }
+    h1 { margin:0 0 10px; font-size:34px; line-height:1.18; }
+    h2 { margin:42px 0 14px; font-size:24px; line-height:1.3; }
+    h3 { margin:20px 0 8px; font-size:18px; }
+    p  { margin:8px 0 14px; }
+    .lead { max-width:920px; color:var(--muted); font-size:17px; }
+    code { padding:2px 5px; border-radius:5px; background:var(--code); color:#111827;
+           font-family:"Cascadia Mono",Consolas,monospace; font-size:.92em; }
+    pre  { margin:12px 0 18px; padding:14px 16px; overflow-x:auto; border-radius:8px;
+           background:#111827; color:#f9fafb; font-family:"Cascadia Mono",Consolas,monospace;
+           font-size:13px; line-height:1.52; }
+    pre code { padding:0; background:transparent; color:inherit; }
+    table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); margin-bottom:20px; }
+    th,td { border-bottom:1px solid var(--line); padding:10px 12px; text-align:left; vertical-align:top; }
+    th { background:var(--soft); }
+
+    /* timeline */
+    .timeline { position:relative; padding-left:36px; }
+    .timeline::before { content:''; position:absolute; left:12px; top:8px; bottom:8px;
+                         width:2px; background:var(--line); }
+    .tl-item { position:relative; margin-bottom:24px; }
+    .tl-dot  { position:absolute; left:-29px; top:5px; width:16px; height:16px;
+                border-radius:50%; border:3px solid #fff; }
+    .tl-dot.done    { background:#22c55e; box-shadow:0 0 0 2px #86efac; }
+    .tl-dot.current { background:#1d5fd6; box-shadow:0 0 0 2px #93c5fd; }
+    .tl-dot.planned { background:#d1d5db; box-shadow:0 0 0 2px #e5e7eb; }
+
+    .tl-head { display:flex; align-items:baseline; gap:10px; margin-bottom:3px; }
+    .tl-ver  { font-size:13px; font-weight:800; color:var(--ink);
+                background:var(--soft); border:1px solid var(--line);
+                border-radius:4px; padding:1px 8px; letter-spacing:.3px; }
+    .tl-ver.current { background:#dbeafe; border-color:#93c5fd; color:#1d4ed8; }
+    .tl-ver.planned { background:#f3f4f6; border-color:#d1d5db; color:#9ca3af; }
+    .tl-title{ font-size:15px; font-weight:700; }
+    .tl-date { font-size:11px; color:var(--muted); }
+    .tl-body { font-size:13px; color:var(--muted); margin-top:4px; line-height:1.6; }
+    .tl-body code { font-size:11px; }
+
+    .badge { display:inline-block; padding:1px 7px; border-radius:999px;
+              font-size:10px; font-weight:700; margin-right:4px; vertical-align:middle; }
+    .badge.feat { background:#dbeafe; color:#1d4ed8; }
+    .badge.fix  { background:#dcfce7; color:#15803d; }
+    .badge.arch { background:#fef3c7; color:#b45309; }
+    .badge.plan { background:#f3f4f6; color:#6b7280; }
+
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:20px; }
+    .card  { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; }
+    .card h4 { margin:0 0 8px; font-size:14px; }
+    .card p  { margin:0; font-size:13px; color:var(--muted); }
+
+    .arch-box { background:#0f172a; color:#e2e8f0; border-radius:8px;
+                 padding:20px 24px; font-family:"Cascadia Mono",Consolas,monospace;
+                 font-size:13px; line-height:1.8; margin:12px 0 20px; }
+    .arch-box .c { color:#94a3b8; }
+    .arch-box .g { color:#86efac; }
+    .arch-box .b { color:#93c5fd; }
+    .arch-box .y { color:#fde68a; }
+
+    .section-label { font-size:11px; font-weight:700; color:var(--muted);
+                      text-transform:uppercase; letter-spacing:.6px;
+                      margin:32px 0 10px; padding-bottom:6px;
+                      border-bottom:2px solid var(--line); }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>CRF Reviewer</h1>
+    <p class="lead">로컬 TypeScript CRF 스펙을 EDC 유사 HTML로 렌더링하고,<br>
+       검토 의견·타입 변경 제안·코드 힌트를 제공하는 독립형 검토 도구.</p>
+    <p style="font-size:13px;color:var(--muted)">
+      위치: <code>C:\Users\SunbeomGwon\crf-reviewer\</code> &nbsp;·&nbsp;
+      대상: <code>C:\Users\SunbeomGwon\maven-crfs\src\crfs\</code>
+    </p>
+  </header>
+
+  <!-- ── 아키텍처 ── -->
+  <h2>아키텍처</h2>
+  <div class="arch-box">
+<span class="c">┌─ 생성 시점 (npx tsx generate-preview.ts &lt;study&gt;) ─────────────┐</span>
+<span class="g">  page.ts / folders.ts / domain.ts</span>  <span class="c">← maven-crfs/src/crfs/&lt;study&gt;/</span>
+          <span class="b">↓ import (pathToFileURL)</span>
+  <span class="y">buildHtml()</span>  +  <span class="y">buildTypeStats()</span>  <span class="c">← 타 과제 ~128개 Jaccard 스캔</span>
+          <span class="b">↓</span>
+  <span class="g">preview-&lt;study&gt;.html</span>  <span class="c">← 완전 독립 파일 (서버 불필요)</span>
+    <span class="c">│  PAGES / NAV / DOMAINS / TYPE_STATS / LABEL_STATS / CDISC_RULES 내장</span>
+<span class="c">└────────────────────────────────────────────────────────────────┘</span>
+
+<span class="c">┌─ 브라우저 런타임 ────────────────────────────────────────────────┐</span>
+  localStorage  <span class="c">← 댓글(crf-comments::&lt;study&gt;) + 타입변경(crf-overrides::&lt;study&gt;)</span>
+  JSON export   <span class="c">← comments + typeOverrides 포함, 공유 가능</span>
+  JSON import   <span class="c">← 수신자가 HTML + JSON으로 검토 내용 복원</span>
+<span class="c">└────────────────────────────────────────────────────────────────┘</span>
+  </div>
+
+  <!-- ── 버전 이력 ── -->
+  <h2>버전 이력</h2>
+
+  <div class="section-label">Phase 0 — 기반 구축</div>
+  <div class="timeline">
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v0.1</span>
+        <span class="tl-title">기본 HTML 미리보기 생성기</span>
+        <span class="tl-date">2025-05</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        <code>scripts/generate-preview.ts</code> — <code>tsx</code> + <code>pathToFileURL</code> (Windows 동적 import 해결).
+        3패널 레이아웃(사이드바 | CRF 본문 | 우측 패널). 방문/페이지 네비게이션, mock 입력 컨트롤 렌더링.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v0.2</span>
+        <span class="tl-title">임의 과제 일반화</span>
+        <span class="tl-date">2025-05</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge arch">구조</span>
+        <code>CRF_BASE</code> env 변수로 경로 분리. <code>npm run html &lt;study&gt;</code> 한 줄 실행.
+        출력 파일을 과제 디렉토리 내 <code>preview-*.html</code>로 저장.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v0.3</span>
+        <span class="tl-title">댓글 / 검토 의견 시스템</span>
+        <span class="tl-date">2025-05</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        항목 단위 💬 버튼 → localStorage 저장.
+        노란 하이라이트, 우측 패널 전체 목록, 사이드바 주황 dot.
+        댓글 키: <code>pageId::sectionId::itemId</code>.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v0.4</span>
+        <span class="tl-title">TABLE 행 단위 댓글</span>
+        <span class="tl-date">2025-05</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        Appendable table의 각 행에 💬 버튼 추가.
+        키: <code>tableId__rowIdx</code> 또는 <code>tableId__itemSeq</code>.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v0.5</span>
+        <span class="tl-title">댓글 내보내기 / 가져오기</span>
+        <span class="tl-date">2025-05</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        JSON export/import로 검토자 간 공유 흐름 완성.
+        <code>comments-&lt;study&gt;-&lt;date&gt;.json</code> 포맷.
+        Help 모달에 "받는 쪽" 안내 추가.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v0.6</span>
+        <span class="tl-title">Word(.docx) 문서 생성기</span>
+        <span class="tl-date">2025-05</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        <code>scripts/generate-docx.ts</code> — A4 포맷, Malgun Gothic, 다크 네이비 헤더.
+        타이틀 페이지 + CRF 페이지별 3열 테이블.
+        <code>docx</code> npm 패키지 전역 설치로 의존성 해결.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v0.7</span>
+        <span class="tl-title">프로젝트 분리 — crf-reviewer</span>
+        <span class="tl-date">2025-05</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge arch">구조</span>
+        <code>maven-crfs/scripts/</code> → <code>C:\Users\SunbeomGwon\crf-reviewer\</code> 이관.
+        독립 <code>package.json</code>: scripts <code>html</code>, <code>docx</code>.
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-label">Phase 1 — 인터랙티브 타입 스위처</div>
+  <div class="timeline">
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v1.0</span>
+        <span class="tl-title">타입 스위처 모달</span>
+        <span class="tl-date">2025-06</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        항목별 타입 뱃지(RADIO ▾) 클릭 → 타입 변경 모달.
+        <code>TYPE_ALTS</code>: RADIO↔DROPDOWN, TEXT↔DATE↔MULTILINE.
+        <code>typeOverrides</code> localStorage 저장. 주황 테두리로 변경 표시.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v1.1</span>
+        <span class="tl-title">실시간 미리보기 + 토스트 알림</span>
+        <span class="tl-date">2025-06</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        타입 선택 즉시 모달 닫힘 + CRF 본문 컨트롤 라이브 교체.
+        하단 토스트 알림 "RADIO → DROPDOWN 으로 변경했습니다."
+        <code>renderControlForType(item, toType)</code> 함수.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v1.2</span>
+        <span class="tl-title">타입 변경 기록 패널</span>
+        <span class="tl-date">2025-06</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        우측 패널 탭: 💬 댓글 / 🔀 타입 변경.
+        타입 변경 항목을 파란 배경 카드로 표시.
+        수정/되돌리기 버튼, 사이드바 파란 사각 dot, 상단 배지 합산.
+        타입 변경도 JSON export/import에 포함.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v1.3</span>
+        <span class="tl-title">코드 변경 힌트 — 인라인 diff</span>
+        <span class="tl-date">2025-06</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        각 타입 옵션 카드에 인라인 diff 표시.
+        <code>getCodeDiff(origType, toType, item)</code> — 실제 <code>item.direction</code>,
+        <code>item.format</code> 값을 반영한 before/after 코드 라인 생성.
+        빨간(<code>-</code>) / 초록(<code>+</code>) 구문 강조.
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-label">Phase 1 — 타입 추천 시스템</div>
+  <div class="timeline">
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v1.4</span>
+        <span class="tl-title">타 과제 통계 기반 추천 (단순 카운트)</span>
+        <span class="tl-date">2025-06</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        생성 시점에 128개 과제 스캔 →
+        <code>TYPE_STATS[itemId][type] = count</code> HTML 내장.
+        사용률 % 막대, 60% 이상 시 초록 추천 배지.
+        <span style="color:#dc2626">한계:</span> 과제 간 동일 가중치, exact ID 매칭만.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot done"></div>
+      <div class="tl-head">
+        <span class="tl-ver">v1.5</span>
+        <span class="tl-title">Jaccard 유사도 가중치 + label fallback</span>
+        <span class="tl-date">2025-06</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        <code>jaccardSim(A, B) = |A∩B| / |A∪B|</code> — 공유 itemId 비율로 과제 유사도 계산, 통계 가중.
+        itemId 미매칭 시 <code>LABEL_STATS[label]</code> fallback (항목명 기준).
+        <span style="color:#dc2626">한계:</span> 구조적 유사도만 반영, 임상 적절성과 무관.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot current"></div>
+      <div class="tl-head">
+        <span class="tl-ver current">v1.6</span>
+        <span class="tl-title">CDASH/CDISC 표준 매핑 + 청크 단위 일괄 추천</span>
+        <span class="tl-date">2025-06 · 현재</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge feat">기능</span>
+        <code>CDISC_RULES</code> 내장 테이블 — suffix/exact 기반 타입 추론 (1순위).
+        타입 모달에 황색 <b>CDASH 표준</b> 배지 + 근거 문구.
+        <b>✨ 추천 스캔</b> 버튼 → 현재 페이지 전체 항목 일괄 스캔, 항목별 적용 / 전체 적용.
+        추천 우선순위: CDISC 룰 → 통계 추천 순.
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-label">Phase 2 — Extension 서버 연동 (planned)</div>
+  <div class="timeline">
+
+    <div class="tl-item">
+      <div class="tl-dot planned"></div>
+      <div class="tl-head">
+        <span class="tl-ver planned">v2.0</span>
+        <span class="tl-title">로컬 dev 서버 — 브라우저에서 .ts 파일 직접 수정</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge plan">계획</span>
+        <code>localhost:3200</code> Express 서버 + Chrome Extension 메시지 연결.
+        "코드 적용" 버튼 → 서버가 <code>page.ts</code> AST 수정 (<code>@babel/parser</code>) →
+        HTML 재생성 → 브라우저 자동 새로고침.
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot planned"></div>
+      <div class="tl-head">
+        <span class="tl-ver planned">v2.1</span>
+        <span class="tl-title">과제 내 itemId 일관성 체크</span>
+      </div>
+      <div class="tl-body">
+        <span class="badge plan">계획</span>
+        같은 과제 내 다른 페이지에서 동일 itemId가 다른 타입으로 쓰이면 경고.
+        추천 우선순위 2순위로 추가.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── 추천 우선순위 ── -->
+  <h2>타입 추천 우선순위 (v1.6 기준)</h2>
+  <table>
+    <thead><tr><th>순위</th><th>출처</th><th>신뢰도</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><strong>1</strong></td><td>CDASH/CDISC 표준 룰</td><td>⭐⭐⭐⭐⭐</td><td>suffix 패턴 + 정확 매칭. 근거 명확. 황색 배지.</td></tr>
+      <tr><td><strong>2</strong></td><td>Jaccard 가중 타 과제 통계</td><td>⭐⭐</td><td>구조 유사 과제 기반 사용률. 참고용. 60% 이상 시 초록 배지.</td></tr>
+      <tr><td><strong>3</strong></td><td>label fallback 통계</td><td>⭐</td><td>itemId 미매칭 시 label로 대체. "(항목명 기준)" 명시.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ── CDASH 룰 ── -->
+  <h2>CDASH/CDISC 표준 룰 테이블</h2>
+  <table>
+    <thead><tr><th>패턴</th><th>추천 타입</th><th>근거</th></tr></thead>
+    <tbody>
+      <tr><td><code>*DTC</code></td><td>DATE</td><td>CDASH: Date/Time Character (ISO 8601)</td></tr>
+      <tr><td><code>*DAT</code></td><td>DATE</td><td>CDASH: Date field</td></tr>
+      <tr><td><code>*CAT</code></td><td>DROPDOWN</td><td>CDASH: Category (코드화된 값)</td></tr>
+      <tr><td><code>*SCAT</code></td><td>DROPDOWN</td><td>CDASH: Subcategory</td></tr>
+      <tr><td><code>*YN</code></td><td>RADIO</td><td>CDASH: Yes/No indicator</td></tr>
+      <tr><td><code>*FL</code></td><td>RADIO</td><td>CDASH: Flag (Y/N)</td></tr>
+      <tr><td><code>*ONGO</code></td><td>RADIO</td><td>CDASH: Ongoing indicator</td></tr>
+      <tr><td><code>*ORRES</code></td><td>TEXT</td><td>SDTM: Original Result (자유 텍스트)</td></tr>
+      <tr><td><code>*STRESC</code></td><td>TEXT</td><td>SDTM: Standardized Result (character)</td></tr>
+      <tr><td><code>SEX</code></td><td>RADIO</td><td>CDASH: Sex (M/F/U)</td></tr>
+      <tr><td><code>RACE</code></td><td>DROPDOWN</td><td>CDASH: Race (코드 목록)</td></tr>
+      <tr><td><code>ETHNIC</code></td><td>DROPDOWN</td><td>CDASH: Ethnicity</td></tr>
+      <tr><td><code>COUNTRY</code></td><td>DROPDOWN</td><td>CDASH: Country (ISO 3166)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ── v2.0 Extension 서버 설계 ── -->
+  <h2>v2.0 — Extension 서버 연동 설계 (planned)</h2>
+  <div class="arch-box">
+<span class="c">HTML (브라우저)</span>
+  <span class="b">↓ fetch('http://localhost:3200/apply-change', { itemId, pageId, field, value })</span>
+<span class="g">crf-reviewer dev server</span>  <span class="c">(Express, :3200)</span>
+  <span class="b">↓ patch .ts file  (@babel/parser AST 수정)</span>
+<span class="y">maven-crfs/src/crfs/&lt;study&gt;/page.ts</span>
+  <span class="b">↓ npx tsx generate-preview.ts 재생성</span>
+<span class="g">preview-*.html  →  browser auto-reload</span>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h4>기존 CDMS daemon과의 차이</h4>
+      <p>CDMS daemon(:3100)은 EDC 브라우저 조작용 WebSocket 서버.<br>
+         CRF reviewer 서버(:3200)는 로컬 파일 편집 전용.<br>
+         역할이 달라 별도 프로세스로 운영.</p>
+    </div>
+    <div class="card">
+      <h4>AST 수정 전략</h4>
+      <p>간단한 변경(<code>layout</code>, <code>appearance</code>)은 regex로 충분.<br>
+         복잡한 변경(<code>format</code> 객체 교체)은 <code>@babel/parser</code> AST 수정 권장.<br>
+         maven-crfs는 이미 <code>@babel/parser</code> 의존성 보유.</p>
+    </div>
+  </div>
+
+</main>
+</body>
+</html>

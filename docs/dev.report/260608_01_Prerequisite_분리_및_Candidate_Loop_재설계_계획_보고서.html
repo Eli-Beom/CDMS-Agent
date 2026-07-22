@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>Prerequisite 최소 분리 및 Candidate Loop 재설계 계획 보고서</title>
+  <style>
+    body { font-family: "Segoe UI", "Malgun Gothic", Arial, sans-serif; line-height: 1.58; margin: 32px; color: #20242a; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #d7dce2; padding-bottom: 5px; }
+    h3 { font-size: 15px; margin-top: 20px; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 13px; }
+    th, td { border: 1px solid #d7dce2; padding: 7px 9px; vertical-align: top; }
+    th { background: #f3f5f7; text-align: left; }
+    code { background: #f2f4f6; padding: 1px 4px; border-radius: 3px; }
+    pre { background: #f7f8fa; border: 1px solid #d7dce2; padding: 12px; overflow-x: auto; white-space: pre-wrap; }
+    .note { background: #fff8e6; border-left: 4px solid #d89b00; padding: 10px 12px; margin: 12px 0; }
+    .ok { background: #eef8f1; border-left: 4px solid #2e8b57; padding: 10px 12px; margin: 12px 0; }
+    .risk { background: #fff0f0; border-left: 4px solid #c73737; padding: 10px 12px; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>Prerequisite 최소 분리 및 Candidate Loop 재설계 계획 보고서</h1>
+  <p><strong>작성일:</strong> 2026-06-08</p>
+  <p><strong>대상:</strong> CDMS-Agent Rule Discovery candidate 생성 및 notebook runtime loop</p>
+
+  <h2>1. 배경</h2>
+  <p>
+    기존 계획은 모든 candidate에 <code>prerequisite_category</code>, <code>validation_loop</code>,
+    <code>referenced_item_ids</code>, <code>referenced_item_match_quality</code>를 추가하는 방향이었다.
+    그러나 현재 문제는 세밀한 taxonomy가 아니라, setup이 필요한 query candidate와 일반 query candidate가 같은 loop에서 실행되며
+    입력 및 저장이 실패하는 것이다.
+  </p>
+  <div class="risk">
+    따라서 이번 단계에서는 과한 분류 체계를 만들지 않고, loop를 안전하게 나눌 수 있는 최소 flag만 추가한다.
+  </div>
+
+  <h2>2. 목표</h2>
+  <div class="ok">
+    candidate 생성 시점에 setup 필요 여부만 판정하고,
+    notebook에서는 일반 query / setup 필요 query / availability 검증을 분리 실행한다.
+  </div>
+
+  <h2>3. 유지할 최소 metadata</h2>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>필수 여부</th><th>의미</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>requires_setup</code></td>
+        <td>필수</td>
+        <td>candidate 실행 전에 같은 page 내 control row 입력이 필요한지 여부</td>
+      </tr>
+      <tr>
+        <td><code>setup_steps</code></td>
+        <td>setup 필요 시 필수</td>
+        <td>target/input row를 활성화하기 위해 먼저 실행 가능한 step 목록</td>
+      </tr>
+      <tr>
+        <td><code>setup_steps_count</code></td>
+        <td>권장</td>
+        <td>notebook 표에서 setup 필요 candidate를 빠르게 확인하기 위한 count</td>
+      </tr>
+      <tr>
+        <td><code>setup_reason</code></td>
+        <td>권장</td>
+        <td>예: <code>same_page_availability</code></td>
+      </tr>
+      <tr>
+        <td><code>prerequisite_item_ids</code></td>
+        <td>선택</td>
+        <td>디버깅용 control item id 목록. 과한 taxonomy가 아니라 원인 확인용으로만 사용</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>4. 제거할 과한 분류</h2>
+  <table>
+    <thead>
+      <tr><th>제거 대상</th><th>제거 이유</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>prerequisite_category</code></td><td>현재는 same-page setup 여부만 분리하면 충분함</td></tr>
+      <tr><td><code>validation_loop</code></td><td><code>rule_type</code>과 <code>requires_setup</code> 조합으로 notebook에서 분리 가능</td></tr>
+      <tr><td><code>referenced_item_match_quality</code></td><td>row resolver 개선 phase에서 다루는 것이 적절함</td></tr>
+      <tr><td><code>cross_page_prerequisite</code></td><td>DVS/cross-page dependency graph phase에서 별도 처리</td></tr>
+      <tr><td><code>unsupported_prerequisite</code>, <code>unknown_prerequisite</code></td><td>이번 작업의 목적을 흐리므로 limitation/review note로만 남김</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. 수정 계획</h2>
+  <h3>5.1 CRF availability scan</h3>
+  <p>수정 대상: <code>C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\candidate_prerequisites.py</code></p>
+  <p>
+    page 전체 CRF field에서 availability가 있는 item을 인덱싱한다. 단, 복잡한 graph taxonomy를 만들지 않고
+    target/input item의 availability만 빠르게 조회할 수 있는 map 수준으로 유지한다.
+  </p>
+  <pre><code>{
+  "BMLOC": "BMYN = 1",
+  "BSLOC": "BSYN = 1",
+  "PGNREAS": "PGYN = 2"
+}</code></pre>
+
+  <h3>5.2 candidate setup 판정</h3>
+  <p>candidate의 <code>item_id</code>와 <code>input_item_ids</code>를 기준으로 availability 대상인지 확인한다.</p>
+  <pre><code>{
+  "DVS ID": "D_DM_14_1",
+  "rule_type": "query",
+  "item_id": "BMLOC",
+  "input_item_ids": ["BMLOC", "BSLOC"],
+  "requires_setup": true,
+  "setup_reason": "same_page_availability",
+  "setup_steps_count": 2,
+  "prerequisite_item_ids": ["BMYN", "BSYN"],
+  "setup_steps": [...]
+}</code></pre>
+  <p>
+    setup이 필요 없는 candidate에는 <code>requires_setup: false</code>만 넣거나, 아예 setup 관련 field를 생략할 수 있다.
+    생성 및 notebook 필터의 안정성을 위해 이번 작업에서는 <code>requires_setup</code>은 모든 candidate에 명시한다.
+  </p>
+
+  <h3>5.3 static candidate generator 연결</h3>
+  <p>수정 대상: <code>C:\Users\SunbeomGwon\maven-crfs\scripts\generate_screening_rule_discovery.py</code></p>
+  <pre><code># current
+enrich_same_page_prerequisites(...)
+
+# planned
+enrich_candidate_setup_requirements(...)</code></pre>
+  <p>
+    함수명은 구현 시 기존 호환성을 고려해 유지해도 된다.
+    중요한 것은 candidate JSON에 최소 setup metadata만 추가하는 것이다.
+  </p>
+
+  <h3>5.4 CDMS-Agent 내부 candidate 생성 경로 연결</h3>
+  <p>수정 대상: <code>C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\rule_discovery.py</code></p>
+  <p>
+    browser/static discovery로 생성되는 candidate에도 같은 <code>requires_setup</code> 기준을 적용한다.
+  </p>
+
+  <h3>5.5 notebook loop 분리</h3>
+  <p>수정 대상: <code>C:\Users\SunbeomGwon\maven-crfs\scripts\generate_screening_rule_discovery.py</code></p>
+  <pre><code>query_candidates = [
+    c for c in DISCOVERY_CANDIDATES
+    if c.get("rule_type") != "availability"
+]
+
+normal_query_candidates = [
+    c for c in query_candidates
+    if not c.get("requires_setup")
+]
+
+setup_required_query_candidates = [
+    c for c in query_candidates
+    if c.get("requires_setup")
+]
+
+availability_candidates = [
+    c for c in DISCOVERY_CANDIDATES
+    if c.get("rule_type") == "availability"
+]</code></pre>
+  <table>
+    <thead>
+      <tr><th>Loop</th><th>실행 정책</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>일반 query loop</td>
+        <td><code>normal_query_candidates</code>만 실행</td>
+      </tr>
+      <tr>
+        <td>setup 필요 query loop</td>
+        <td><code>setup_required_query_candidates</code>를 표로 표시. 기본 자동 실행은 하지 않음</td>
+      </tr>
+      <tr>
+        <td>availability loop</td>
+        <td><code>availability_candidates</code>를 query loop와 분리해 실행</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>5.6 runtime loop 변경 최소화</h3>
+  <p>수정 대상: <code>C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\rule_discovery_runtime.py</code></p>
+  <p>
+    이미 <code>execute_setup_steps=False</code>가 있으므로 기본 정책은 유지한다.
+    결과 표에는 필요 시 <code>requires_setup</code>, <code>setup_steps_count</code>, <code>setup_reason</code> 정도만 포함한다.
+  </p>
+
+  <h3>5.7 테스트 추가</h3>
+  <p>수정 대상: <code>tests/test_candidate_prerequisites.py</code></p>
+  <ul>
+    <li><code>BMLOC availability BMYN=1</code> → <code>requires_setup=true</code></li>
+    <li><code>BSLOC availability BSYN=1</code> → <code>requires_setup=true</code></li>
+    <li>availability 없는 candidate → <code>requires_setup=false</code></li>
+    <li>복잡한 availability expression은 setup step을 만들지 않고 review note 또는 limitation으로 남김</li>
+  </ul>
+
+  <h2>6. 재생성 및 검증 계획</h2>
+  <pre><code>cd C:\Users\SunbeomGwon\CDMS-Agent
+python -m pytest
+
+cd C:\Users\SunbeomGwon\maven-crfs
+python scripts\generate_screening_rule_discovery.py</code></pre>
+  <p>확인할 산출물:</p>
+  <ul>
+    <li><code>CDMS-Agent_rule_discovery_candidates_DM_v0.2.json</code></li>
+    <li><code>CDMS-Agent_test_DM_v0.6.11.ipynb</code></li>
+  </ul>
+  <p>검증 포인트:</p>
+  <ul>
+    <li><code>D_DM_14_1</code>: <code>requires_setup=true</code>, <code>setup_steps_count=2</code></li>
+    <li><code>D_DM_5</code>, <code>D_DM_7_1</code>: setup 필요 여부가 실제 input item 기준으로 분리되는지 확인</li>
+    <li>일반 query loop에 setup 필요 candidate가 섞이지 않아야 함</li>
+    <li>availability candidate는 query loop와 분리되어야 함</li>
+  </ul>
+
+  <h2>7. 예상 효과</h2>
+  <p>이번 변경 후 FAIL 원인을 최소한 아래처럼 분리할 수 있다.</p>
+  <ol>
+    <li>일반 query candidate에서 실제 query가 발생하지 않은 FAIL</li>
+    <li>setup 필요 candidate라서 일반 loop에서 제외된 케이스</li>
+    <li>availability 검증 대상이라 query loop에서 제외된 케이스</li>
+  </ol>
+  <div class="note">
+    이번 작업은 dependency graph 전체 설계가 아니라, validation 정확도를 떨어뜨리는 실행 혼합을 줄이는 최소 변경이다.
+  </div>
+
+  <h2>8. 실행 프롬프트</h2>
+  <pre><code>CDMS-Agent Rule Discovery candidate의 prerequisite 분리를 최소 변경으로 진행해줘.
+
+목표:
+세밀한 prerequisite taxonomy를 만들지 말고, setup이 필요한 query candidate와 일반 query candidate를 분리해서 notebook validation 정확도를 높인다.
+
+수정 대상:
+1. C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\candidate_prerequisites.py
+2. C:\Users\SunbeomGwon\maven-crfs\scripts\generate_screening_rule_discovery.py
+3. C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\rule_discovery.py
+4. 필요 시 C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\rule_discovery_runtime.py
+5. tests/test_candidate_prerequisites.py
+
+구현 요구사항:
+- CRF page field의 availability를 스캔해서 candidate input item이 같은 page availability 조건을 갖는지 확인한다.
+- 모든 candidate에 최소한 requires_setup boolean을 추가한다.
+- setup이 필요한 candidate에는 setup_steps, setup_steps_count, setup_reason='same_page_availability', prerequisite_item_ids를 추가한다.
+- prerequisite_category, validation_loop, referenced_item_match_quality 같은 과한 taxonomy는 추가하지 않는다.
+- setup이 필요 없는 candidate에는 requires_setup=false만 보장한다.
+- notebook에서는 candidate를 세 그룹으로 분리한다.
+  1. normal_query_candidates: rule_type != 'availability' and requires_setup=false
+  2. setup_required_query_candidates: rule_type != 'availability' and requires_setup=true
+  3. availability_candidates: rule_type == 'availability'
+- normal_query_candidates만 기본 query loop에서 실행한다.
+- setup_required_query_candidates는 표로 표시하고, 기본 자동 실행하지 않는다.
+- availability_candidates는 query loop와 분리한다.
+- main query loop에서는 setup_steps를 자동 실행하지 않는다.
+- Result 판정은 query 발생 여부만 보게 유지한다.
+
+검증:
+- python -m pytest 통과
+- generate_screening_rule_discovery.py 실행 후 DM notebook v0.6.11 생성 확인
+- D_DM_14_1은 requires_setup=true, setup_steps_count=2로 생성되어야 한다.
+- 일반 query loop에 requires_setup=true candidate가 섞이지 않아야 한다.
+- availability candidate가 query loop에 섞이지 않아야 한다.
+
+완료 후:
+- 변경 요약, 생성 파일, 테스트 결과, 남은 리스크를 보고서에 업데이트해줘.</code></pre>
+
+  <h2>9. 작업 결과 업데이트</h2>
+  <p><strong>업데이트일:</strong> 2026-06-08</p>
+  <div class="ok">
+    최소 변경 방식으로 prerequisite 분리를 구현했다. 신규 candidate 산출물과 notebook 표시는
+    <code>requires_prerequisite</code>, <code>prerequisite_steps</code>,
+    <code>prerequisite_steps_count</code>, <code>prerequisite_reason</code> 용어를 사용한다.
+    기존 <code>setup_steps</code>는 runtime fallback으로만 읽을 수 있게 유지했다.
+  </div>
+  <table>
+    <thead>
+      <tr><th>파일</th><th>변경 내용</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\candidate_prerequisites.py</code></td>
+        <td>same-page availability 기반 prerequisite 판정. 신규 field는 <code>prerequisite_*</code> 사용. availability candidate는 prerequisite 판정 대상에서 제외.</td>
+      </tr>
+      <tr>
+        <td><code>C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\rule_discovery_runtime.py</code></td>
+        <td><code>prerequisite_steps</code> 우선, <code>setup_steps</code> fallback. <code>execute_prerequisite_steps</code> 옵션 추가.</td>
+      </tr>
+      <tr>
+        <td><code>C:\Users\SunbeomGwon\CDMS-Agent\src\cdm_agent_client\crf\rule_discovery.py</code></td>
+        <td>browser fallback 및 availability candidate에 <code>requires_prerequisite=false</code> 기본값 보장.</td>
+      </tr>
+      <tr>
+        <td><code>C:\Users\SunbeomGwon\maven-crfs\scripts\generate_screening_rule_discovery.py</code></td>
+        <td>notebook version <code>v0.6.14</code>. notebook에서 <code>normal_query_candidates</code>, <code>prerequisite_required_query_candidates</code>, <code>availability_candidates</code>를 분리하고, normal/prerequisite/availability 실행 및 결과 표시를 물리적으로 분리.</td>
+      </tr>
+      <tr>
+        <td><code>C:\Users\SunbeomGwon\CDMS-Agent\tests\test_candidate_prerequisites.py</code></td>
+        <td>새 prerequisite 용어와 legacy setup fallback 검증 추가.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>10. 생성 및 검증 결과</h2>
+  <table>
+    <thead>
+      <tr><th>항목</th><th>결과</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>테스트</td><td><code>python -m pytest</code> → <code>62 passed</code></td></tr>
+      <tr><td>재생성</td><td><code>python scripts\generate_screening_rule_discovery.py</code> 실행 완료</td></tr>
+      <tr><td>DM notebook</td><td><code>CDMS-Agent_test_DM_v0.6.14.ipynb</code></td></tr>
+      <tr><td>DM candidate JSON</td><td><code>CDMS-Agent_rule_discovery_candidates_DM_v0.2.json</code></td></tr>
+      <tr><td>DM 분리 결과</td><td>normal query 6건, prerequisite required query 2건, availability 5건</td></tr>
+      <tr><td>availability prerequisite flag</td><td>availability candidate 중 <code>requires_prerequisite=true</code> 0건</td></tr>
+      <tr><td>notebook cell 분리</td><td>총 10개 cell. Cell 3 normal query 실행, Cell 4 prerequisite 확인, Cell 5 prerequisite 선택 실행, Cell 6 availability 목록 확인, Cell 7 target availability 선택 실행으로 분리 확인</td></tr>
+      <tr><td>normal query result 표시</td><td>기존 Rule Discovery 기본 결과 컬럼만 표시. prerequisite/internal 컬럼 제외 확인</td></tr>
+      <tr><td>availability result 표시</td><td>availability 전용 결과 컬럼만 표시. query observed 컬럼 제외 확인</td></tr>
+    </tbody>
+  </table>
+
+  <h2>11. 핵심 DM candidate 확인</h2>
+  <table>
+    <thead>
+      <tr><th>DVS ID</th><th>Expected Result</th><th>item_id</th><th>requires_prerequisite</th><th>prerequisite_steps_count</th><th>prerequisite_item_ids</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>D_DM_5</code></td><td><code>query_expected</code></td><td><code>OPINDCR</code></td><td><code>false</code></td><td>-</td><td>-</td></tr>
+      <tr><td><code>D_DM_7_1</code></td><td><code>query_expected</code></td><td><code>BMYN</code></td><td><code>false</code></td><td>-</td><td>-</td></tr>
+      <tr><td><code>D_DM_14_1</code></td><td><code>query_expected</code></td><td><code>BSLOC</code></td><td><code>true</code></td><td><code>2</code></td><td><code>BSYN, BMYN</code></td></tr>
+      <tr><td><code>D_DM_14_1</code></td><td><code>no_query_expected</code></td><td><code>BSLOC</code></td><td><code>true</code></td><td><code>2</code></td><td><code>BSYN, BMYN</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>12. 남은 리스크</h2>
+  <div class="risk">
+    이번 작업은 prerequisite candidate를 일반 query loop에서 분리하는 최소 변경이다.
+    <code>부위</code>처럼 화면 label이 중복되는 row의 정확한 선택 문제는 아직 남아 있다.
+    다음 단계에서는 section/item id 기반 row resolver 또는 browser step outcome 로그를 보강해야 한다.
+  </div>
+
+  <h2>13. observed_query_messages 매칭 개선</h2>
+  <p><strong>업데이트일:</strong> 2026-06-08</p>
+  <div class="ok">
+    결과표 구조를 추가로 분리하지 않고, runtime의 query message matching 정확도를 개선했다.
+    최종 결과표의 <code>observed_query_count</code>, <code>observed_query_messages</code> 컬럼 의미는 그대로 유지한다.
+  </div>
+  <table>
+    <thead>
+      <tr><th>항목</th><th>변경 내용</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Query label parsing</td>
+        <td><code>Query [[우측 유방] 수술 목적]</code>처럼 label 내부에 대괄호가 있는 경우도 <code>[우측 유방] 수술 목적</code>으로 안정적으로 추출.</td>
+      </tr>
+      <tr>
+        <td>candidate match labels</td>
+        <td><code>expected_query_message_labels</code>, <code>expected_query_message_label</code>, <code>item_label</code>, <code>MAIN</code> step label을 후보로 사용. <code>PRECOND</code> step label은 기본 후보에서 제외.</td>
+      </tr>
+      <tr>
+        <td>matching rule</td>
+        <td>정규화 후 정확 일치를 우선하고, 짧은 label 오매칭을 피하면서 제한적인 contains fallback을 허용.</td>
+      </tr>
+      <tr>
+        <td>display</td>
+        <td>새 debug 컬럼은 추가하지 않음. 기존 <code>observed_query_messages</code>에 matched query만 유지.</td>
+      </tr>
+      <tr>
+        <td>검증</td>
+        <td><code>python -m pytest</code> → <code>67 passed</code></td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>

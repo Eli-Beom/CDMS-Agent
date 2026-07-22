@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>CDMS-Agent Query Target 및 Extension Wait Query 변경 보고서</title>
+  <style>
+    body { font-family: "Segoe UI", "Malgun Gothic", Arial, sans-serif; line-height: 1.55; margin: 32px; color: #20242a; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #d7dce2; padding-bottom: 5px; }
+    h3 { font-size: 15px; margin-top: 18px; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 13px; }
+    th, td { border: 1px solid #d7dce2; padding: 7px 9px; vertical-align: top; }
+    th { background: #f3f5f7; text-align: left; }
+    code { background: #f2f4f6; padding: 1px 4px; border-radius: 3px; }
+    pre { background: #f7f8fa; border: 1px solid #d7dce2; padding: 12px; overflow-x: auto; }
+    .ok { background: #eef8f1; border-left: 4px solid #2e8b57; padding: 10px 12px; margin: 12px 0; }
+    .note { background: #fff8e6; border-left: 4px solid #d89b00; padding: 10px 12px; margin: 12px 0; }
+    .risk { background: #fff0f0; border-left: 4px solid #c73737; padding: 10px 12px; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>CDMS-Agent Query Target 및 Extension Wait Query 변경 보고서</h1>
+  <p><strong>작성일:</strong> 2026-06-05</p>
+  <p><strong>대상 CRF:</strong> <code>C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB</code></p>
+  <p><strong>대상 시스템:</strong> <code>C:\Users\SunbeomGwon\CDMS-Agent</code></p>
+
+  <h2>1. 변경 배경</h2>
+  <p>
+    DM 페이지 Rule Discovery 실행 결과에서 query가 실제로 발생했을 가능성이 있는데도
+    <code>observed_query_count = 0</code>으로 기록되는 문제가 확인되었다.
+    특히 <code>D_DM_5</code>는 CRF 스펙상 좌측/우측 유방 수술 목적을 모두
+    <code>해당사항 없음</code>으로 입력하면 query가 발생해야 하지만, 기존 candidate는 첫 입력 row인
+    <code>[좌측 유방] 수술 목적</code>을 query target처럼 사용했다.
+  </p>
+  <p>
+    실제 CRF trigger의 <code>issue.itemId</code>는 <code>OPINDCR</code>이며,
+    query message label은 <code>[우측 유방] 수술 목적</code>을 기준으로 뜰 가능성이 높다.
+    따라서 문제는 개별 candidate 수정보다 candidate 생성 로직의 target 결정 기준에 있었다.
+  </p>
+
+  <h2>2. 기존 문제</h2>
+  <table>
+    <thead>
+      <tr><th>영역</th><th>기존 동작</th><th>문제</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Candidate 생성</td>
+        <td>첫 번째 입력 step의 row label을 <code>item_label</code>로 사용</td>
+        <td>query target이 아닌 입력 row를 target으로 오인</td>
+      </tr>
+      <tr>
+        <td>Query message 매칭</td>
+        <td><code>item_label</code>, <code>item_id</code>, step label fallback 기준 매칭</td>
+        <td>실제 issue target label과 다르면 query를 못 셈</td>
+      </tr>
+      <tr>
+        <td>Query 감지 시점</td>
+        <td>Save 후 sleep 후 inspect 1회</td>
+        <td>query 표시 타이밍에 따라 감지 누락 가능</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. Candidate 생성 로직 변경</h2>
+  <p>
+    candidate의 query target을 <code>trigger.issue.itemId</code> 기준으로 생성하도록 변경했다.
+    입력에 사용된 row는 별도 metadata로 보관한다.
+  </p>
+  <pre><code>{
+  "DVS ID": "D_DM_5",
+  "item_id": "OPINDCR",
+  "item_label": "[우측 유방] 수술 목적",
+  "input_item_ids": ["OPINDCL", "OPINDCR"],
+  "input_item_labels": [
+    "[좌측 유방] 수술 목적",
+    "[우측 유방] 수술 목적"
+  ],
+  "expected_query_message_label": "[우측 유방] 수술 목적",
+  "expected_query_message_labels": ["[우측 유방] 수술 목적"]
+}</code></pre>
+
+  <h3>DM 주요 candidate 확인 결과</h3>
+  <table>
+    <thead>
+      <tr><th>DVS ID</th><th>Expected</th><th>Query Target</th><th>Input Rows</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>D_DM_4</code></td>
+        <td><code>query_expected</code></td>
+        <td><code>BFYN / 수유 여부</code></td>
+        <td>생년월일, 성별, 가임 여부, 수유 여부</td>
+      </tr>
+      <tr>
+        <td><code>D_DM_5</code></td>
+        <td><code>query_expected</code></td>
+        <td><code>OPINDCR / [우측 유방] 수술 목적</code></td>
+        <td>[좌측 유방] 수술 목적, [우측 유방] 수술 목적</td>
+      </tr>
+      <tr>
+        <td><code>D_DM_7_1</code></td>
+        <td><code>query_expected</code></td>
+        <td><code>BMYN / 유방암 병력이 있습니까?</code></td>
+        <td>[좌측 유방] 수술 목적, 유방암 병력이 있습니까?</td>
+      </tr>
+      <tr>
+        <td><code>D_DM_1_2</code></td>
+        <td><code>query_expected</code></td>
+        <td><code>AGE / 나이</code></td>
+        <td>생년월일</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>4. Runtime Query Matching 변경</h2>
+  <p>
+    runtime의 query matching은 이제 <code>expected_query_message_labels</code>와
+    <code>expected_query_message_label</code>을 우선 사용한다.
+    해당 값이 없을 때만 기존 <code>item_label</code>, <code>item_id</code>, step label fallback을 사용한다.
+  </p>
+  <div class="ok">
+    이 변경으로 <code>D_DM_5</code>처럼 입력 row와 query target row가 다른 경우에도
+    실제 query message label 기준으로 query count를 계산할 수 있다.
+  </div>
+
+  <h2>5. Extension-side Wait Query 추가</h2>
+  <p>
+    기존 방식은 Save 후 Python에서 sleep 후 inspect를 1회 수행했다.
+    새 방식은 Chrome extension의 page context에서 <code>MutationObserver</code>로 query message DOM 변화를 기다린다.
+  </p>
+  <pre><code>notebook runtime
+  -> agent.click_save()
+  -> agent.wait_query(labels=[expected_query_message_label])
+  -> daemon /api/cdm-agent/wait-query
+  -> extension command: wait_for_query
+  -> browser-runner-core.js MutationObserver
+  -> Query message 발견 즉시 Python으로 반환</code></pre>
+
+  <table>
+    <thead>
+      <tr><th>구성요소</th><th>변경 내용</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>browser-runner-core.js</code></td>
+        <td><code>waitForQueryMessages(labels, timeoutMs)</code> 추가, runner version <code>0.0.14-query-event-push</code></td>
+      </tr>
+      <tr>
+        <td><code>service-worker.js</code></td>
+        <td><code>wait_for_query</code> command 처리 추가</td>
+      </tr>
+      <tr>
+        <td><code>daemon/src/index.ts</code></td>
+        <td><code>POST /api/cdm-agent/wait-query</code> endpoint 추가</td>
+      </tr>
+      <tr>
+        <td><code>client.py</code></td>
+        <td><code>CDMSAgent.wait_query()</code> 추가</td>
+      </tr>
+      <tr>
+        <td><code>rule_discovery_runtime.py</code></td>
+        <td>Save 후 extension-side wait query를 우선 사용하고 snapshot query와 병합</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>6. Notebook 및 Candidate 재생성</h2>
+  <p>
+    screening page notebook은 <code>v0.6.8</code>로 재생성되었다.
+    candidate JSON은 기존 파일명 <code>CDMS-Agent_rule_discovery_candidates_&lt;PAGE_ID&gt;_v0.2.json</code>을 유지하되,
+    query target metadata가 갱신되었다.
+  </p>
+  <ul>
+    <li><code>CDMS-Agent_test_DM_v0.6.8.ipynb</code></li>
+    <li><code>CDMS-Agent_test_PE_v0.6.8.ipynb</code></li>
+    <li><code>CDMS-Agent_test_BU_v0.6.8.ipynb</code></li>
+    <li><code>CDMS-Agent_test_LB_v0.6.8.ipynb</code></li>
+    <li><code>CDMS-Agent_test_IE_v0.6.8.ipynb</code></li>
+    <li><code>CDMS-Agent_test_XR_v0.6.8.ipynb</code></li>
+    <li><code>CDMS-Agent_test_PG_v0.6.8.ipynb</code></li>
+    <li><code>CDMS-Agent_test_MH_v0.6.8.ipynb</code></li>
+    <li><code>CDMS-Agent_test_CC_v0.6.8.ipynb</code></li>
+  </ul>
+
+  <h2>7. 검증 결과</h2>
+  <table>
+    <thead>
+      <tr><th>검증</th><th>결과</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>python -m pytest</code></td>
+        <td><code>59 passed</code></td>
+      </tr>
+      <tr>
+        <td><code>npm run daemon:build</code></td>
+        <td>TypeScript build 통과</td>
+      </tr>
+      <tr>
+        <td>DM candidate 확인</td>
+        <td><code>D_DM_5</code> target이 <code>OPINDCR / [우측 유방] 수술 목적</code>으로 생성됨</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>8. 실제 사용 시 필요한 조치</h2>
+  <div class="note">
+    변경된 extension runner와 service worker를 사용하려면 daemon 재시작, Chrome extension reload, CDMS page refresh가 필요하다.
+    이후 <code>CDMS-Agent_test_DM_v0.6.8.ipynb</code>에서 <code>D_DM_5</code>를 먼저 실행해 실제 query 감지 여부를 확인한다.
+  </div>
+
+  <h2>9. 남은 리스크</h2>
+  <div class="risk">
+    <code>D_DM_14_1</code>처럼 서로 다른 item이 화면에서 같은 label(<code>부위</code>)로 표시되는 경우,
+    query message도 단순히 <code>Query [부위]</code>로 뜰 수 있다.
+    이 경우 label만으로는 row 구분이 불충분하므로 향후 section/item id 기반 row matching 보강이 필요하다.
+  </div>
+</body>
+</html>

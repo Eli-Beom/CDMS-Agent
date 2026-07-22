@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CRF Doctor / Static Diagnostics 260527</title>
+  <style>
+    body{margin:0;background:#f6f8fb;color:#17212f;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;line-height:1.58}
+    main{max-width:1020px;margin:0 auto;padding:32px 24px 56px}.sheet{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:28px}
+    h1{margin:0 0 8px;font-size:29px;letter-spacing:0}h2{margin:26px 0 10px;font-size:19px;letter-spacing:0}
+    p{margin:8px 0 12px}ul{padding-left:22px}li{margin:4px 0}code{background:#eef3f8;padding:2px 5px;border-radius:5px}
+    table{width:100%;border-collapse:collapse;border:1px solid #d8dee8;margin-top:10px}th,td{border-bottom:1px solid #d8dee8;padding:9px 11px;text-align:left;vertical-align:top}th{background:#eef3f8}
+    .meta{color:#5f6b7a;font-size:13px}.summary{border-left:4px solid #1d5fd6;background:#f8fbff;padding:12px 14px;margin:16px 0}
+  </style>
+</head>
+<body><main><article class="sheet">
+  <h1>CRF Doctor / Static Diagnostics</h1>
+  <div class="meta">Date: 2026-05-27 (_260527) · Work Unit: CRF source diagnosis</div>
+  <section class="summary">
+    <p>목적은 브라우저 실행 전에 CRF 소스의 구조적 문제와 자동화 가능 범위를 빠르게 확인하는 것입니다.</p>
+  </section>
+  <section>
+    <h2>개발 의도</h2>
+    <ul>
+      <li>중복 trigger id처럼 실행 전에 알 수 있는 오류를 먼저 차단합니다.</li>
+      <li>모든 trigger를 자동화하지 않고, query auto와 manual review를 분리합니다.</li>
+      <li>과제 규모를 숫자로 파악해 “어디까지 자동화할지” 판단 근거를 만듭니다.</li>
+    </ul>
+  </section>
+  <section>
+    <h2>구현 내용</h2>
+    <table>
+      <tr><th>항목</th><th>내용</th></tr>
+      <tr><td>중복 ID 검사</td><td><code>duplicated trigger id</code> 탐지.</td></tr>
+      <tr><td>참조 검사</td><td>unresolved itemId, missing pageId 확인.</td></tr>
+      <tr><td>Trigger 분류</td><td>자동화 가능한 query와 EACH/CURRENT/SIBLING/dynamic context manual review 분리.</td></tr>
+      <tr><td>요약 출력</td><td><code>page.ts</code>, <code>trigger.ts</code>, query 합계, availability item 합계 출력.</td></tr>
+    </table>
+  </section>
+  <section>
+    <h2>검증 결과</h2>
+    <p><code>cdms-crf doctor</code> 실행 시 예시 과제에서 query trigger/auto/manual review/availability 합계와 warning/info가 출력됩니다.</p>
+  </section>
+</article></main></body>
+</html>

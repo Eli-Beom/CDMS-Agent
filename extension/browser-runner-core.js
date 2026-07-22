@@ -1,11 +1,15 @@
 ﻿(function bootstrapCDMAgentRunner(global) {
-  if (global.__CDMAgentRunner) {
+  var RUNNER_VERSION = "0.0.22-query-clear";
+  if (global.__CDMAgentRunner && global.__CDMAgentRunner.version === RUNNER_VERSION) {
     return;
   }
 
   var networkEvents = [];
   var networkWatcherInstalled = false;
   var debugOverlay = null;
+  var queryObserverInstalled = false;
+  var lastQueryEventText = "";
+  var lastQueryEventAt = 0;
 
   function nowIso() {
     return new Date().toISOString();
@@ -58,9 +62,10 @@
   }
 
   function normalize(text) {
-    return String(text || "")
-      .replace(/\s+/g, " ")
-      .trim();
+    var s = String(text || "").replace(/\s+/g, " ").trim();
+    // NFC normalization handles Korean characters that look identical but have
+    // different Unicode code points (e.g. composed vs. decomposed Hangul).
+    return s.normalize ? s.normalize("NFC") : s;
   }
 
   function textOf(node) {
@@ -79,6 +84,72 @@
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
     element.dispatchEvent(new Event("blur", { bubbles: true }));
+  }
+
+  function findReactPropsKey(el) {
+    if (!el) return null;
+    var keys = Object.getOwnPropertyNames(el);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].startsWith("__reactProps")) return keys[i];
+    }
+    return null;
+  }
+
+  function findReactFiberKey(el) {
+    if (!el) return null;
+    var keys = Object.getOwnPropertyNames(el);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].startsWith("__reactFiber") ||
+          keys[i].startsWith("__reactInternalInstance")) {
+        return keys[i];
+      }
+    }
+    return null;
+  }
+
+  function notifyReactValueChange(element, value) {
+    try {
+    if (!element) return false;
+    var event = {
+      target: element,
+      currentTarget: element,
+      preventDefault: function() {},
+      stopPropagation: function() {},
+      isPropagationStopped: function() { return false; },
+      nativeEvent: { isTrusted: true, type: "change", target: element },
+      type: "change",
+    };
+
+    var propsKey = findReactPropsKey(element);
+    if (propsKey) {
+      var directProps = element[propsKey];
+      if (directProps && typeof directProps.onChange === "function") {
+        try { directProps.onChange(event, value); return true; } catch (e) {}
+      }
+      if (directProps && typeof directProps.onInput === "function") {
+        try { directProps.onInput(Object.assign({}, event, { type: "input" }), value); return true; } catch (e) {}
+      }
+    }
+
+    var fiberKey = findReactFiberKey(element);
+    if (!fiberKey) return false;
+    var node = element[fiberKey];
+    for (var step = 0; node && step < 50; step++) {
+      var props = node.memoizedProps || node.pendingProps;
+      if (props) {
+        if (typeof props.onChange === "function") {
+          try { props.onChange(event, value); return true; } catch (e) {}
+        }
+        if (typeof props.onInput === "function") {
+          try { props.onInput(Object.assign({}, event, { type: "input" }), value); return true; } catch (e) {}
+        }
+      }
+      node = node.return;
+    }
+    return false;
+    } catch (e) {
+      return false;
+    }
   }
 
   function clickNode(node) {
@@ -154,32 +225,90 @@
     ));
   }
 
-  function findRow(rowLabel) {
+  function findRow(rowLabel, anchorLabel, rowLabelOccurrence) {
     var allMatches = visibleTextNodes().filter(function(node) {
       return textOf(node) === rowLabel;
     });
 
-    // Priority 1: not nav AND not inside app-study-crf-group-header (section title)
-    var labelNode = allMatches.find(function(node) {
-      if (isNavNode(node)) return false;
-      var tr = node.closest("tr");
-      return !tr || !tr.classList.contains("app-study-crf-group-header");
-    })
-    // Priority 2: not nav (may be group header)
-    || allMatches.find(function(node) { return !isNavNode(node); })
-    || allMatches[0];
+    function controlsIn(node) {
+      return node
+        ? node.querySelectorAll("input, textarea, select, button, [role='button'], [tabindex]").length
+        : 0;
+    }
+
+    function inputsIn(node) {
+      return node
+        ? node.querySelectorAll("input, textarea, select").length
+        : 0;
+    }
+
+    function candidateRow(node) {
+      if (!node) return null;
+      return (
+        node.closest("tr") ||
+        node.parentElement && node.parentElement.closest("tr") ||
+        node.closest(".item--wrapper") ||
+        node.closest(".cr-section") ||
+        node.parentElement
+      );
+    }
+
+    var anchorBottom = null;
+    if (anchorLabel) {
+      try {
+        var anchorRow = findRow(anchorLabel);
+        var anchorRect = anchorRow && anchorRow.getBoundingClientRect ? anchorRow.getBoundingClientRect() : null;
+        anchorBottom = anchorRect ? anchorRect.bottom : null;
+      } catch (error) {}
+    }
+
+    var candidates = allMatches
+      .filter(function(node) { return !isNavNode(node); })
+      .map(function(node) {
+        var row = candidateRow(node);
+        var tr = node.closest("tr");
+        var isHeader =
+          (tr && tr.classList.contains("app-study-crf-group-header")) ||
+          (node.closest && node.closest("thead"));
+        var score = 0;
+        if (row && inputsIn(row) > 0) score += 1000;
+        if (row && controlsIn(row) > 0) score += 100;
+        if (isHeader) score -= 500;
+        if (anchorBottom !== null && row && row.getBoundingClientRect) {
+          var rowRect = row.getBoundingClientRect();
+          if (rowRect.top >= anchorBottom - 2) {
+            score += 2000;
+            score -= Math.max(0, rowRect.top - anchorBottom);
+          } else {
+            score -= 2000;
+          }
+        }
+        return { node: node, row: row, score: score };
+      })
+      .sort(function(a, b) { return b.score - a.score; });
+
+    var picked = candidates[0];
+    var occurrence = parseInt(rowLabelOccurrence || 0, 10);
+    if (occurrence > 1) {
+      var occurrenceCandidates = candidates
+        .filter(function(c) { return c.row && inputsIn(c.row) > 0; })
+        .sort(function(a, b) {
+          var ar = a.row.getBoundingClientRect ? a.row.getBoundingClientRect() : { top: 0 };
+          var br = b.row.getBoundingClientRect ? b.row.getBoundingClientRect() : { top: 0 };
+          return (ar.top || 0) - (br.top || 0);
+        });
+      if (occurrenceCandidates[occurrence - 1]) {
+        picked = occurrenceCandidates[occurrence - 1];
+      }
+    }
+
+    var labelNode = picked && picked.node;
 
     if (!labelNode) {
       throw new Error("Row label not found: " + rowLabel);
     }
 
-    var row = (
-      labelNode.closest("tr") ||
-      labelNode.parentElement.closest("tr") ||
-      labelNode.closest(".item--wrapper") ||
-      labelNode.closest(".cr-section") ||
-      labelNode.parentElement
-    );
+    var row = picked && picked.row || candidateRow(labelNode);
 
     // app-study-crf-group-header is a section title row with no inputs.
     // Maven CDMS uses a separate <tbody> per section, so nextElementSibling of the
@@ -211,12 +340,112 @@
     return row;
   }
 
-  function findEditableInput(root) {
-    return Array.prototype.slice
-      .call(root.querySelectorAll("input, textarea"))
-      .find(function(node) {
-        return isVisible(node) && !node.disabled && !node.readOnly && node.type !== "hidden" && node.tabIndex !== -1;
+  function findHiddenRow(rowLabel) {
+    var nodes = Array.prototype.slice
+      .call(document.querySelectorAll("th, td, div, span, label"))
+      .filter(function(node) {
+        return textOf(node) === rowLabel && !isNavNode(node);
       });
+
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var row = (
+        node.closest("tr") ||
+        node.parentElement && node.parentElement.closest("tr") ||
+        node.closest(".item--wrapper") ||
+        node.closest(".cr-section") ||
+        node.parentElement
+      );
+      if (row && !isVisible(row)) {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  function getRowTriggerState(rowLabel, action, anchorLabel, rowLabelOccurrence) {
+    var row;
+    try {
+      row = findRow(rowLabel, anchorLabel, rowLabelOccurrence);
+    } catch (error) {
+      row = findHiddenRow(rowLabel);
+      if (!row) {
+        throw error;
+      }
+    }
+
+    var rowVisible = isVisible(row);
+    var controls = Array.prototype.slice.call(
+      row.querySelectorAll("input, textarea, select, button, [role='button'], [role='radio'], [role='combobox'], [tabindex]")
+    ).filter(function(node) {
+      return isVisible(node) && node.type !== "hidden";
+    });
+    var dateTargets = Array.prototype.slice.call(
+      row.querySelectorAll("i[data-icon-name='Calendar'], .GrDatePicker button, button, [role='button'], [tabindex='0']")
+    ).filter(function(node) {
+      if (!isVisible(node)) return false;
+      var label = (node.getAttribute("aria-label") || "").toLowerCase();
+      var hasSvg = node.querySelector && node.querySelector("svg") !== null;
+      return label.includes("date") || label.includes("달력") || label.includes("calendar") || hasSvg;
+    });
+    var editableControls = controls.filter(function(node) {
+      return !node.disabled && !node.readOnly && node.getAttribute("aria-disabled") !== "true";
+    });
+    var dateAvailable = action === "setDateViaCalendarPopup" && dateTargets.some(function(node) {
+      return !node.disabled && node.getAttribute("aria-disabled") !== "true";
+    });
+    var rowAvailability = (editableControls.length > 0 || dateAvailable) ? "available" : "unavailable";
+    var rowDisability = controls.length > 0 && editableControls.length === 0 && !dateAvailable ? "locked" : "unlocked";
+    return {
+      rowLabel: rowLabel,
+      row: row,
+      row_visibility: rowVisible ? "visible" : "hidden",
+      row_availability: rowAvailability,
+      row_disability: rowDisability,
+      controls: controls.length,
+      editableControls: editableControls.length,
+      dateTargets: dateTargets.length,
+    };
+  }
+
+  function skippedRowResult(action, state, reason) {
+    return {
+      action: action,
+      outcome: "skipped",
+      skipped: true,
+      rowLabel: state.rowLabel,
+      reason: reason,
+      row_visibility: state.row_visibility,
+      row_availability: state.row_availability,
+      row_disability: state.row_disability,
+    };
+  }
+
+  function rowSkipResult(rowLabel, action, anchorLabel, rowLabelOccurrence) {
+    var state = getRowTriggerState(rowLabel, action, anchorLabel, rowLabelOccurrence);
+    if (state.row_visibility === "hidden") {
+      return skippedRowResult(action, state, "row_visibility_hidden");
+    }
+    if (state.row_availability === "unavailable") {
+      return skippedRowResult(action, state, "row_availability_unavailable");
+    }
+    if (state.row_disability !== "unlocked") {
+      return skippedRowResult(action, state, "row_disability_locked");
+    }
+    return null;
+  }
+
+  function findEditableInput(root) {
+    var candidates = Array.prototype.slice.call(root.querySelectorAll("input, textarea"));
+    var base = function(node) {
+      return isVisible(node) && !node.disabled && !node.readOnly && node.type !== "hidden";
+    };
+    // Prefer inputs with a reachable tab stop; fall back to any editable input
+    // (CDMS composite fields like "숫자 + 단위" may have tabIndex=-1 but still accept text)
+    return (
+      candidates.find(function(node) { return base(node) && node.tabIndex !== -1; }) ||
+      candidates.find(function(node) { return base(node); })
+    );
   }
 
   function comboboxTriggerCandidates(root) {
@@ -493,6 +722,242 @@
     };
   }
 
+  function queryRows() {
+    var texts = uniqueVisibleTexts(300);
+    Array.prototype.slice
+      .call(document.querySelectorAll("td.message, .message-inner, [class*='message']"))
+      .filter(isVisible)
+      .map(textOf)
+      .filter(function(text) {
+        return text && text.indexOf("Query [") >= 0;
+      })
+      .forEach(function(text) {
+        texts.push(text);
+      });
+    Array.prototype.slice
+      .call(document.querySelectorAll("[role='alert'], [class*='error'], [class*='invalid'], [class*='validation']"))
+      .filter(isVisible)
+      .map(textOf)
+      .filter(Boolean)
+      .forEach(function(text) {
+        texts.push(text);
+      });
+
+    return texts
+      .filter(function(text) {
+        return text.indexOf("Query [") >= 0;
+      })
+      .map(function(text) {
+        var idx = text.indexOf("Query [");
+        return idx >= 0 ? text.slice(idx) : text;
+      })
+      .filter(function(value, index, array) {
+        return array.indexOf(value) === index;
+      });
+  }
+
+  function queryLabelMatches(text, label) {
+    var normalizedText = normalize(text);
+    var normalizedLabel = normalize(label);
+    if (!normalizedText || !normalizedLabel) return false;
+    return normalizedText.indexOf("query[" + normalizedLabel + "]") >= 0
+      || normalizedText.indexOf(normalizedLabel) >= 0;
+  }
+
+  function findQueryMessageRow(label) {
+    var nodes = Array.prototype.slice.call(document.querySelectorAll("td.message, .message-inner, [class*='message']"))
+      .filter(function(node) {
+        var text = textOf(node);
+        return text.indexOf("Query [") >= 0 && (!label || queryLabelMatches(text, label));
+      });
+    if (!nodes.length) return null;
+    return nodes[0].closest("tr") || nodes[0];
+  }
+
+  function queryActionCandidates(row) {
+    if (!row) return [];
+    var cells = Array.prototype.slice.call(row.querySelectorAll(":scope > td, :scope > th"));
+    var messageCellIndex = cells.findIndex(function(cell) {
+      return textOf(cell).indexOf("Query [") >= 0;
+    });
+    var roots = messageCellIndex >= 0 ? cells.slice(messageCellIndex + 1) : [row];
+    var out = [];
+    roots.forEach(function(root) {
+      Array.prototype.slice.call(root.querySelectorAll("button, [role='button'], svg, i, span, div"))
+        .forEach(function(node) {
+          if (!isVisible(node)) return;
+          var rect = node.getBoundingClientRect();
+          if (rect.width < 6 || rect.height < 6) return;
+          var label = [
+            node.getAttribute("aria-label") || "",
+            node.getAttribute("title") || "",
+            node.getAttribute("data-icon-name") || "",
+            textOf(node),
+          ].join(" ");
+          out.push({ node: node, label: label, rect: rect });
+        });
+    });
+    var seen = new Set();
+    return out.filter(function(item) {
+      var key = [Math.round(item.rect.left), Math.round(item.rect.top), Math.round(item.rect.width), Math.round(item.rect.height)].join(":");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function getQueryActionCoords(label, actionName) {
+    var row = findQueryMessageRow(label);
+    if (!row) return null;
+    var action = normalize(actionName || "cancel");
+    var candidates = queryActionCandidates(row);
+    if (!candidates.length) return null;
+    function score(item, index) {
+      var text = normalize(item.label);
+      var value = 0;
+      if (action === "accept" || action === "resolve" || action === "check") {
+        if (/(check|done|accept|resolve|confirm|확인|승인|완료)/i.test(item.label)) value += 100;
+        if (index === 1) value += 20;
+      } else if (action === "refresh") {
+        if (/(refresh|reload|reset|새로|초기화)/i.test(item.label)) value += 100;
+        if (index === 3) value += 20;
+      } else {
+        if (/(close|cancel|delete|remove|clear|dismiss|x|취소|닫기|삭제|제거)/i.test(item.label)) value += 100;
+        if (text === "x" || text === "×") value += 80;
+        if (index === 2) value += 20;
+      }
+      return value;
+    }
+    var selected = candidates.map(function(item, index) {
+      return { item: item, score: score(item, index) };
+    }).sort(function(a, b) {
+      return b.score - a.score;
+    })[0].item.node;
+    selected.scrollIntoView({ block: "center", inline: "nearest" });
+    var rect = selected.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
+  async function clickQueryAction(label, actionName) {
+    var coords = getQueryActionCoords(label, actionName || "cancel");
+    if (!coords) {
+      return { action: "clickQueryAction", outcome: "not_found", label: label || "", queryAction: actionName || "cancel" };
+    }
+    var node = document.elementFromPoint(coords.x, coords.y);
+    if (!node) {
+      return { action: "clickQueryAction", outcome: "not_found", label: label || "", queryAction: actionName || "cancel" };
+    }
+    humanClick(node);
+    await sleep(250);
+    return { action: "clickQueryAction", outcome: "clicked", label: label || "", queryAction: actionName || "cancel" };
+  }
+
+  function emitQueryEvents() {
+    if (!global.chrome || !global.chrome.runtime || typeof global.chrome.runtime.sendMessage !== "function") {
+      return;
+    }
+    queryRows().forEach(function(text) {
+      var normalizedText = normalize(text);
+      var now = Date.now();
+      if (!normalizedText || (normalizedText === lastQueryEventText && now - lastQueryEventAt < 1000)) {
+        return;
+      }
+      lastQueryEventText = normalizedText;
+      lastQueryEventAt = now;
+      try {
+        global.chrome.runtime.sendMessage({
+          type: "query-event",
+          payload: {
+            text: text,
+            url: global.location.href,
+            pathname: global.location.pathname,
+            pageLabel: activePageInfo().pageLabel,
+            timestamp: nowIso(),
+          },
+        });
+      } catch (error) {}
+    });
+  }
+
+  function installQueryObserver() {
+    if (queryObserverInstalled || typeof MutationObserver !== "function") {
+      return;
+    }
+    queryObserverInstalled = true;
+    var pending = false;
+    var observer = new MutationObserver(function() {
+      if (pending) return;
+      pending = true;
+      global.setTimeout(function() {
+        pending = false;
+        emitQueryEvents();
+      }, 50);
+    });
+    observer.observe(document.documentElement || document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    global.setTimeout(emitQueryEvents, 100);
+  }
+
+  function queryMatchesLabels(text, labels) {
+    if (!labels || !labels.length) {
+      return true;
+    }
+    var normalizedText = normalize(text).replace(/\s+/g, "").toLowerCase();
+    return labels.some(function(label) {
+      var normalizedLabel = normalize(label).replace(/\s+/g, "").toLowerCase();
+      return normalizedLabel && (
+        normalizedText.indexOf("query[" + normalizedLabel + "]") >= 0 ||
+        normalizedText.indexOf(normalizedLabel) >= 0
+      );
+    });
+  }
+
+  function waitForQueryMessages(labels, timeoutMs) {
+    var wantedLabels = (labels || []).filter(Boolean);
+    var timeout = typeof timeoutMs === "number" ? timeoutMs : 3000;
+    var startedAt = Date.now();
+
+    return new Promise(function(resolve) {
+      function currentMatches() {
+        return queryRows().filter(function(text) {
+          return queryMatchesLabels(text, wantedLabels);
+        });
+      }
+
+      var initial = currentMatches();
+      if (initial.length) {
+        resolve({ outcome: "query_observed", queryRows: initial, elapsedMs: Date.now() - startedAt });
+        return;
+      }
+
+      var done = false;
+      var observer = new MutationObserver(function() {
+        if (done) return;
+        var matches = currentMatches();
+        if (!matches.length) return;
+        done = true;
+        observer.disconnect();
+        resolve({ outcome: "query_observed", queryRows: matches, elapsedMs: Date.now() - startedAt });
+      });
+
+      observer.observe(document.documentElement || document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+
+      global.setTimeout(function() {
+        if (done) return;
+        done = true;
+        observer.disconnect();
+        resolve({ outcome: "no_query_observed", queryRows: [], elapsedMs: Date.now() - startedAt });
+      }, timeout);
+    });
+  }
+
   function visibleRows() {
     return Array.prototype.slice
       .call(document.querySelectorAll("th, label, .item-label, .app-study-crf-group-header, .cr-section-title"))
@@ -504,31 +969,244 @@
       });
   }
 
+  function structuredRows() {
+    var optionLikeLabels = [
+      "예", "아니요", "남성", "여성", "기타",
+      "Tumor", "Nodes", "Metastasis", "Stage",
+      "흡연 중", "금연 중", "흡연력 없음",
+      "음주 중", "금주 중", "음주력 없음",
+      "유방확대술", "유방재건술", "해당사항 없음",
+      "[Select ..]"
+    ];
+
+    function isOptionLike(text) {
+      var value = normalize(text);
+      return !value || optionLikeLabels.indexOf(value) >= 0 || value.indexOf("Query [") === 0;
+    }
+
+    function controlsIn(root) {
+      return Array.prototype.slice.call(root.querySelectorAll(
+        "input, textarea, select, button, [role='radio'], [role='combobox'], [aria-haspopup='listbox'], [aria-haspopup='menu'], [tabindex]"
+      )).filter(function(node) {
+        return isVisible(node) && node.type !== "hidden";
+      });
+    }
+
+    function rowForControl(control) {
+      return (
+        control.closest("tr") ||
+        control.closest(".item--wrapper") ||
+        control.closest("[class*='field']") ||
+        control.closest(".cr-section") ||
+        control.parentElement
+      );
+    }
+
+    function isHeaderRow(row) {
+      return !!(row && (
+        row.closest && row.closest("thead") ||
+        row.classList && row.classList.contains("app-study-crf-group-header") ||
+        row.querySelectorAll("input, textarea, select, button, [role='radio'], [role='combobox']").length === 0
+      ));
+    }
+
+    function controlTypeFor(row) {
+      if (row.querySelector("input[type='radio'], [role='radio'], .cr-clearable-radio-buttons input[type='checkbox']")) return "radio";
+      if (row.querySelector("input[type='checkbox']")) return "checkbox";
+      if (row.querySelector("i[data-icon-name='Calendar'], .GrDatePicker button")) return "date";
+      if (row.querySelector("textarea")) return "textarea";
+      if (row.querySelector("select, [role='combobox'], [aria-haspopup='listbox'], [aria-haspopup='menu']")) return "select";
+      if (row.querySelector("input")) return "input";
+      return "unknown";
+    }
+
+    function rowOptions(row) {
+      return Array.prototype.slice
+        .call(row.querySelectorAll("label, [role='radio'], button, span"))
+        .filter(isVisible)
+        .map(textOf)
+        .filter(function(text) {
+          return text && text.length <= 80 && !text.includes("→");
+        })
+        .filter(function(value, index, array) {
+          return array.indexOf(value) === index;
+        });
+    }
+
+    function inputDetails(row) {
+      return Array.prototype.slice.call(row.querySelectorAll("input, textarea, select")).map(function(node) {
+        return {
+          tag: (node.tagName || "").toLowerCase(),
+          type: node.getAttribute("type") || "",
+          value: node.value || "",
+          placeholder: node.getAttribute("placeholder") || "",
+          disabled: !!node.disabled,
+          readOnly: !!node.readOnly,
+          visible: isVisible(node),
+          ariaLabel: node.getAttribute("aria-label") || "",
+        };
+      });
+    }
+
+    function buttonDetails(row) {
+      return Array.prototype.slice.call(row.querySelectorAll("button, [role='button'], [tabindex='0']")).map(function(node) {
+        return {
+          tag: (node.tagName || "").toLowerCase(),
+          text: textOf(node),
+          ariaLabel: node.getAttribute("aria-label") || "",
+          disabled: !!node.disabled || node.getAttribute("aria-disabled") === "true",
+          visible: isVisible(node),
+          hasSvg: !!(node.querySelector && node.querySelector("svg")),
+        };
+      });
+    }
+
+    function rowLabel(row) {
+      var cells = Array.prototype.slice.call(row.querySelectorAll(":scope > th, :scope > td"));
+      if (cells.length) {
+        var first = textOf(cells[0]);
+        if (first && !isOptionLike(first)) return first;
+        if (cells.length > 1 && isOptionLike(first)) {
+          var table = row.closest("table");
+          var index = cells.indexOf(cells.find(function(cell) {
+            return controlsIn(cell).length > 0;
+          }));
+          var columnHeader = "";
+          if (table && index >= 0) {
+            var headerRows = Array.prototype.slice.call(table.querySelectorAll("thead tr, tr")).filter(function(tr) {
+              return tr !== row && tr.querySelectorAll("th").length > 0;
+            });
+            for (var h = headerRows.length - 1; h >= 0; h--) {
+              var headers = Array.prototype.slice.call(headerRows[h].querySelectorAll("th, td"));
+              if (headers[index]) {
+                columnHeader = textOf(headers[index]);
+                if (columnHeader) break;
+              }
+            }
+          }
+          if (first && columnHeader && !isOptionLike(columnHeader)) {
+            return first + " / " + columnHeader;
+          }
+          if (columnHeader && !isOptionLike(columnHeader)) return columnHeader;
+        }
+      }
+      var label = Array.prototype.slice
+        .call(row.querySelectorAll(".item-label, label, th, td"))
+        .filter(isVisible)
+        .map(textOf)
+        .find(function(text) {
+          return text && !isOptionLike(text) && text.length <= 120;
+        });
+      return label || "";
+    }
+
+    var controls = Array.prototype.slice.call(document.querySelectorAll(
+      "input, textarea, select, button, [role='radio'], [role='combobox'], [aria-haspopup='listbox'], [aria-haspopup='menu']"
+    )).filter(function(node) {
+      return isVisible(node) && node.type !== "hidden";
+    });
+
+    var rows = controls
+      .map(rowForControl)
+      .filter(function(row) {
+        return row && isVisible(row) && !isHeaderRow(row);
+      })
+      .filter(function(value, index, array) {
+        return array.indexOf(value) === index;
+      });
+
+    return rows
+      .map(function(row) {
+        var label = rowLabel(row);
+        if (!label) return null;
+        var controls = controlsIn(row);
+        var editableControls = controls.filter(function(node) {
+          return isVisible(node) && !node.disabled && !node.readOnly && node.getAttribute("aria-disabled") !== "true" && node.type !== "hidden";
+        });
+        var controlType = controlTypeFor(row);
+        var rowVisible = isVisible(row);
+        var rowAvailability = rowVisible && editableControls.length > 0 ? "available" : "unavailable";
+        var rowDisability = controls.length > 0 && editableControls.length === 0 ? "locked" : "unlocked";
+        return {
+          rowLabel: label,
+          visible: rowVisible,
+          editable: rowVisible && editableControls.length > 0,
+          disabled: controls.length > 0 && editableControls.length === 0,
+          row_visibility: rowVisible ? "visible" : "hidden",
+          row_availability: rowAvailability,
+          row_disability: rowDisability,
+          controlType: controlType,
+          options: controlType === "radio" || controlType === "checkbox"
+            ? rowOptions(row).filter(function(text) { return text !== label && !text.includes("→"); })
+            : [],
+          inputs: inputDetails(row),
+          buttons: buttonDetails(row),
+        };
+      })
+      .filter(Boolean)
+      .filter(function(row, index, array) {
+        return array.findIndex(function(other) { return other.rowLabel === row.rowLabel; }) === index;
+      });
+  }
+
   function activePageLabel() {
+    return activePageInfo().label;
+  }
+
+  function activePageInfo() {
+    var crfTitle = Array.prototype.slice
+      .call(document.querySelectorAll(".cr-section-title, .cr-section-header, .app-study-crf-group-header"))
+      .find(function(node) {
+        return isVisible(node) && textOf(node) && !textOf(node).includes("Query [");
+      });
+
+    if (crfTitle) {
+      var title = textOf(crfTitle);
+      return { label: title, rawLabel: title, statusNumbers: [] };
+    }
+
     var activeSidebar = Array.prototype.slice
-      .call(document.querySelectorAll("[aria-current='page'], .active, .selected, .is-active"))
+      .call(document.querySelectorAll("nav [aria-current='page'], nav .active, nav .selected, nav .is-active, .cr-nav-wrapped [aria-current='page'], .cr-nav-wrapped .active, .cr-nav-wrapped .selected, .cr-nav-wrapped .is-active"))
       .find(function(node) {
         return isVisible(node) && textOf(node);
       });
 
     if (activeSidebar) {
-      return textOf(activeSidebar);
+      var raw = textOf(activeSidebar);
+      var match = raw.match(/^((?:\d+\s+)+)(.+)$/);
+      var statusNumbers = match ? match[1].trim().split(/\s+/).map(function(value) { return Number(value); }) : [];
+      return {
+        label: match ? match[2].trim() : raw,
+        rawLabel: raw,
+        statusNumbers: statusNumbers,
+      };
     }
 
     var heading = Array.prototype.slice.call(document.querySelectorAll("h1, h2, h3")).find(function(node) {
       return isVisible(node) && textOf(node);
     });
 
-    return heading ? textOf(heading) : "";
+    var label = heading ? textOf(heading) : "";
+    return { label: label, rawLabel: label, statusNumbers: [] };
   }
 
   function inspectActivePage() {
     var signals = collectValidationSignals();
+    var pageInfo = activePageInfo();
+    var observedQueryRows = queryRows();
     return {
       url: global.location.href,
       pathname: global.location.pathname,
-      pageLabel: activePageLabel(),
+      pageLabel: pageInfo.label,
+      rawPageLabel: pageInfo.rawLabel,
+      pageStatus: {
+        rawLabel: pageInfo.rawLabel,
+        statusNumbers: pageInfo.statusNumbers,
+        queryCount: observedQueryRows.length,
+        invalidCount: signals.invalidCount,
+      },
       visibleRows: visibleRows(),
+      structuredRows: structuredRows(),
       enabledActions: signals.buttonStates.filter(function(button) {
         return !button.disabled;
       }).map(function(button) {
@@ -536,6 +1214,8 @@
       }),
       invalidRowLabels: signals.invalidRowLabels,
       invalidCount: signals.invalidCount,
+      queryRows: observedQueryRows,
+      queryCount: observedQueryRows.length,
       buttonStates: signals.buttonStates,
       toastTexts: signals.toastTexts,
       modalTexts: signals.modalTexts,
@@ -577,6 +1257,8 @@
   }
 
   async function setText(rowLabel, value) {
+    var skip = rowSkipResult(rowLabel, "setText");
+    if (skip) return skip;
     var row = findRow(rowLabel);
     var input = findEditableInput(row);
     if (!input) {
@@ -602,6 +1284,7 @@
     });
     if (existingPopup) {
       setNativeValue(existingPopup, value || "");
+      notifyReactValueChange(existingPopup, value || "");
       await sleep(100);
       var preEnter = findButtonExact("Enter");
       if (preEnter) { clickNode(preEnter); await sleep(400); }
@@ -609,6 +1292,8 @@
     }
 
     var row = findRow(rowLabel);
+    var skip = rowSkipResult(rowLabel, "setDateViaCalendarPopup");
+    if (skip) return skip;
 
     // Fluent i[data-icon-name='Calendar'] — standard Fluent DatePicker
     // GrIcon / GrDatePicker button — Maven CDMS custom date picker
@@ -630,6 +1315,28 @@
       throw new Error("Calendar icon not found for row: " + rowLabel);
     }
 
+    async function commitDateInput(input) {
+      if (!input) return false;
+      try { input.readOnly = false; } catch (e) {}
+      clickNode(input);
+      setNativeValue(input, value || "");
+      notifyReactValueChange(input, value || "");
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      input.dispatchEvent(new Event("blur", { bubbles: true }));
+      await sleep(500);
+      return input.value === value;
+    }
+
+    if (await commitDateInput(fallbackInput)) {
+      return {
+        rowLabel: rowLabel,
+        value: fallbackInput.value,
+        action: "setDateViaCalendarPopup",
+      };
+    }
+
     if (icon) {
       clickNode(icon);
       await sleep(250);
@@ -642,6 +1349,7 @@
         }, 2000, 100);
 
         setNativeValue(popupInput, value || "");
+        notifyReactValueChange(popupInput, value || "");
         await sleep(100);
 
         var enterButton = findButtonExact("Enter");
@@ -655,18 +1363,24 @@
     }
 
     if (fallbackInput) {
-      try { fallbackInput.readOnly = false; } catch (e) {}
-      clickNode(fallbackInput);
-      setNativeValue(fallbackInput, value || "");
-      fallbackInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-      fallbackInput.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
-      fallbackInput.dispatchEvent(new Event("blur", { bubbles: true }));
-      await sleep(400);
+      await commitDateInput(fallbackInput);
     }
 
     var mainInput = Array.prototype.slice.call(row.querySelectorAll("input")).find(function(node) {
       return isVisible(node);
     });
+
+    if (mainInput && mainInput.value !== value) {
+      await commitDateInput(mainInput);
+    }
+
+    mainInput = Array.prototype.slice.call(row.querySelectorAll("input")).find(function(node) {
+      return isVisible(node);
+    });
+
+    if (!mainInput || mainInput.value !== value) {
+      throw new Error("Date value was not committed for row " + rowLabel + ": expected " + value + ", actual " + (mainInput ? mainInput.value : "<none>"));
+    }
 
     return {
       rowLabel: rowLabel,
@@ -675,30 +1389,40 @@
     };
   }
 
-  async function selectRadio(rowLabel, optionLabel) {
+  async function selectRadio(rowLabel, optionLabel, anchorLabel, probeOnly, rowLabelOccurrence) {
+    var skip = rowSkipResult(rowLabel, "selectRadio", anchorLabel, rowLabelOccurrence);
+    if (skip) return skip;
     function pageContainsValidationQuery(targetRowLabel) {
-      var pageText = normalize(document.body && document.body.innerText ? document.body.innerText : "");
-      return pageText.indexOf("[" + targetRowLabel + "] ?낅젰 ?꾨씫") >= 0;
+      // Check whether CDMS is still showing a validation error for this row.
+      // We look for the row label inside known validation-message containers rather
+      // than matching the exact (locale-dependent) Korean message text.
+      var label = normalize(targetRowLabel);
+      return Array.prototype.slice
+        .call(document.querySelectorAll("[class*='error'], [class*='invalid'], [class*='validation'], [role='alert']"))
+        .filter(isVisible)
+        .some(function(el) {
+          return normalize(el.textContent || "").indexOf(label) >= 0;
+        });
     }
 
-    function radioSelectionSatisfied(targetRowLabel, targetOptionLabel) {
-      var queryCleared = !pageContainsValidationQuery(targetRowLabel);
+    function radioSelectionSatisfied(targetRowLabel, targetOptionLabel, targetAnchorLabel) {
       var row = null;
       try {
-        row = findRow(targetRowLabel);
+        row = findRow(targetRowLabel, targetAnchorLabel, rowLabelOccurrence);
       } catch (error) {}
 
+      var searchRoot = row || document;
       var radioNodes = Array.prototype.slice.call(
-        document.querySelectorAll("input[type='radio'], [role='radio'], label, button, span, div")
+        searchRoot.querySelectorAll("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox'], [role='radio'], label, button, span, div")
       ).filter(function(node) {
         return isVisible(node) && textOf(node) === targetOptionLabel;
       });
 
       var hasCheckedRadio = radioNodes.some(function(node) {
         var host =
-          (node.matches && node.matches("input[type='radio']") && node) ||
-          (node.querySelector && node.querySelector("input[type='radio']")) ||
-          (node.closest && node.closest("label") && node.closest("label").querySelector("input[type='radio']")) ||
+          (node.matches && node.matches("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']") && node) ||
+          (node.querySelector && node.querySelector("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']")) ||
+          (node.closest && node.closest("label") && node.closest("label").querySelector("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']")) ||
           null;
 
         return !!host && !!host.checked;
@@ -709,29 +1433,16 @@
         return !!host && host.getAttribute("aria-checked") === "true";
       });
 
-      if (row) {
-        var rowText = textOf(row);
-        if (normalizedIncludes(rowText, targetOptionLabel) && (queryCleared || isSaveEnabled())) {
-          return true;
-        }
-      }
-
-      return hasCheckedRadio || hasAriaChecked || queryCleared || isSaveEnabled();
+      return hasCheckedRadio || hasAriaChecked;
     }
 
-    function findPrioritizedRadio(targetRowLabel, targetOptionLabel) {
-      var labelNode = findVisibleTextNodeExact(targetRowLabel);
-      var labelContainer = labelNode
-        ? (labelNode.closest("tr") ||
-          labelNode.closest(".item--wrapper") ||
-          labelNode.closest(".cr-section") ||
-          labelNode.closest("form") ||
-          labelNode.parentElement)
-        : null;
-      var labelTop = labelNode && labelNode.getBoundingClientRect ? labelNode.getBoundingClientRect().top : 0;
+    function findPrioritizedRadio(targetRowLabel, targetOptionLabel, targetAnchorLabel) {
+      var labelContainer = findRow(targetRowLabel, targetAnchorLabel, rowLabelOccurrence);
+      var labelRect = labelContainer && labelContainer.getBoundingClientRect ? labelContainer.getBoundingClientRect() : { top: 0 };
+      var labelTop = labelRect.top || 0;
 
       var candidates = Array.prototype.slice
-        .call(document.querySelectorAll("input[type='radio']"))
+        .call(labelContainer.querySelectorAll("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']"))
         .filter(function(node) {
           return isVisible(node);
         })
@@ -772,7 +1483,8 @@
       return candidates.length ? candidates[0] : null;
     }
 
-    var row = findRow(rowLabel);
+    var row = findRow(rowLabel, anchorLabel, rowLabelOccurrence);
+    var triggerState = getRowTriggerState(rowLabel, "selectRadio", anchorLabel, rowLabelOccurrence);
     var option = Array.prototype.slice
       .call(row.querySelectorAll("label, span, div, button"))
       .find(function(node) {
@@ -780,38 +1492,10 @@
       });
 
     if (!option) {
-      var labelNode = findVisibleTextNodeExact(rowLabel);
-      var optionCandidates = visibleTextNodes().filter(function(node) {
-        return textOf(node) === optionLabel;
-      });
-
-      if (labelNode && optionCandidates.length) {
-        var labelSection = labelNode.closest(".cr-section, .section, form, table") || document.body;
-        var labelTop = labelNode.getBoundingClientRect ? labelNode.getBoundingClientRect().top : 0;
-
-        option = optionCandidates
-          .map(function(node) {
-            var host = node.closest("label, button, [role='radio'], div, span") || node;
-            var sameSection = (host.closest(".cr-section, .section, form, table") || document.body) === labelSection;
-            var rect = host.getBoundingClientRect ? host.getBoundingClientRect() : { top: 0 };
-            return {
-              host: host,
-              score: (sameSection ? 1000 : 0) - Math.abs((rect.top || 0) - labelTop),
-            };
-          })
-          .sort(function(left, right) {
-            return right.score - left.score;
-          })[0];
-
-        option = option ? option.host : null;
-      }
-    }
-
-    if (!option) {
       throw new Error("Radio option not found for row " + rowLabel + ": " + optionLabel);
     }
 
-    var prioritized = findPrioritizedRadio(rowLabel, optionLabel);
+    var prioritized = findPrioritizedRadio(rowLabel, optionLabel, anchorLabel);
     var clickTarget = (prioritized && prioritized.host) || option;
     var radioInput =
       (prioritized && prioritized.node) ||
@@ -825,31 +1509,84 @@
 
     clickNode(clickTarget);
 
-    if (radioInput && !radioInput.checked) {
+    if (!probeOnly && radioInput && !radioInput.checked) {
       clickNode(radioInput);
       radioInput.checked = true;
       radioInput.dispatchEvent(new Event("input", { bubbles: true }));
       radioInput.dispatchEvent(new Event("change", { bubbles: true }));
     }
     await sleep(250);
-    await waitFor(function() {
-      return radioSelectionSatisfied(rowLabel, optionLabel);
-    }, 4000, 120);
+    if (probeOnly) {
+      try {
+        await waitFor(function() {
+          return radioSelectionSatisfied(rowLabel, optionLabel, anchorLabel);
+        }, 800, 120);
+      } catch (error) {}
+    } else {
+      await waitFor(function() {
+        return radioSelectionSatisfied(rowLabel, optionLabel, anchorLabel);
+      }, 4000, 120);
+    }
+    var checked = radioSelectionSatisfied(rowLabel, optionLabel, anchorLabel);
 
     var selectedState = {
       rowLabel: rowLabel,
       optionLabel: optionLabel,
+      anchorLabel: anchorLabel || "",
+      rowLabelOccurrence: rowLabelOccurrence || "",
       action: "selectRadio",
-      checked: !!(radioInput && radioInput.checked),
+      checked: checked,
       ariaChecked: !!(clickTarget && clickTarget.closest && clickTarget.closest("[role='radio']") && clickTarget.closest("[role='radio']").getAttribute("aria-checked") === "true"),
       saveEnabled: isSaveEnabled(),
-      rowText: textOf(findRow(rowLabel)),
+      probeOnly: probeOnly === true ? true : undefined,
+      row_availability: triggerState.row_availability,
+      row_disability: triggerState.row_disability,
+      row_visibility: triggerState.row_visibility,
+      rowText: textOf(findRow(rowLabel, anchorLabel, rowLabelOccurrence)),
     };
 
     return selectedState;
   }
 
+  async function probeRadio(rowLabel, optionLabel, anchorLabel, rowLabelOccurrence) {
+    var row = findRow(rowLabel, anchorLabel, rowLabelOccurrence);
+    var nodes = Array.prototype.slice.call(
+      row.querySelectorAll("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox'], [role='radio'], label, button, span, div")
+    ).filter(function(node) {
+      if (!isVisible(node)) return false;
+      var host =
+        (node.matches && node.matches("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']") && node.parentElement) ||
+        (node.closest && node.closest("label")) ||
+        node;
+      var text = textOf(host);
+      return text === optionLabel || normalizedIncludes(text, optionLabel);
+    });
+
+    var checked = nodes.some(function(node) {
+      var input =
+        (node.matches && node.matches("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']") && node) ||
+        (node.querySelector && node.querySelector("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']")) ||
+        (node.closest && node.closest("label") && node.closest("label").querySelector("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']")) ||
+        null;
+      var roleRadio = node.closest && node.closest("[role='radio']");
+      return !!(input && input.checked) || !!(roleRadio && roleRadio.getAttribute("aria-checked") === "true");
+    });
+
+    return {
+      rowLabel: rowLabel,
+      optionLabel: optionLabel,
+      anchorLabel: anchorLabel || "",
+      rowLabelOccurrence: rowLabelOccurrence || "",
+      action: "probeRadio",
+      checked: checked,
+      outcome: checked ? "passed" : "failed",
+      rowText: textOf(row),
+    };
+  }
+
   async function selectComboboxOption(rowLabel, optionLabel) {
+    var skip = rowSkipResult(rowLabel, "selectComboboxOption");
+    if (skip) return skip;
     var row = findRow(rowLabel);
     var beforeRowText = textOf(row);
     var beforeRows = visibleRows();
@@ -959,7 +1696,45 @@
     };
   }
 
+  // Returns true when the 수정사유 (Reason for Change) popup is visible on screen.
+  function hasReasonPopup() {
+    return visibleTextNodes().some(function(node) {
+      return textOf(node) === "수정사유";
+    });
+  }
+
+  // Walk up from the 수정사유 label to find the popup's action button.
+  // Depending on what triggered the popup the label is either "Save" or "Save & Next".
+  function findPopupSaveButton() {
+    var reasonNode = visibleTextNodes().find(function(node) {
+      return textOf(node) === "수정사유";
+    });
+    if (!reasonNode) return null;
+
+    var el = reasonNode;
+    for (var i = 0; i < 20; i++) {
+      el = el.parentElement;
+      if (!el || el === document.body) break;
+      var btns = Array.prototype.slice.call(el.querySelectorAll("button")).filter(function(b) {
+        var t = textOf(b);
+        return isVisible(b) && (t === "Save" || t === "Save & Next");
+      });
+      if (!btns.length) continue;
+      // Prefer an enabled button; fall back to any matching button.
+      return btns.find(function(b) {
+        return !b.disabled && b.getAttribute("aria-disabled") !== "true";
+      }) || btns[0];
+    }
+    return null;
+  }
+
   async function clickSave() {
+    // If the reason popup is already open, leave it to the service worker CDP
+    // post-save handler. Fluent UI ignores page-context synthetic clicks.
+    if (hasReasonPopup()) {
+      return { action: "clickSave", button: "Save", reasonPopupOpen: true };
+    }
+
     var button = findButtonExact("Save");
     if (!button) {
       throw new Error("Save button not found.");
@@ -971,10 +1746,29 @@
 
     clickNode(button);
     await sleep(500);
+
+    // Clicking Save on an already-saved page triggers the reason popup — handle it.
+    // The popup may take up to ~1.5 s to appear so wait with a short poll.
+    if (!hasReasonPopup()) {
+      try {
+        await waitFor(hasReasonPopup, 1500, 100);
+      } catch (e) { /* popup did not appear — normal save */ }
+    }
+    if (hasReasonPopup()) {
+      return { action: "clickSave", button: "Save", reasonPopupOpen: true };
+    }
+
     return { action: "clickSave", button: "Save" };
   }
 
   async function clickSaveNext() {
+    // If the reason popup is already open, leave it to the service worker CDP
+    // post-save handler. Fluent UI ignores page-context synthetic clicks.
+    if (hasReasonPopup()) {
+      return { action: "clickSaveNext", button: "Save & Next", reasonPopupOpen: true };
+    }
+
+    var pageBefore = global.location.pathname;
     var button = findButtonExact("Save & Next");
     if (!button) {
       throw new Error("Save & Next button not found.");
@@ -984,29 +1778,90 @@
       throw new Error("Save & Next button is disabled.");
     }
 
+    var buttonLabel = textOf(button) || "Save & Next";
     clickNode(button);
     await sleep(500);
-    return { action: "clickSaveNext", button: "Save & Next" };
+
+    // Clicking Save & Next on an already-saved page may trigger the reason popup.
+    if (!hasReasonPopup()) {
+      try { await waitFor(hasReasonPopup, 1500, 100); } catch (e) {}
+    }
+    if (hasReasonPopup()) {
+      return {
+        action: "clickSaveNext",
+        button: "Save & Next",
+        buttonLabel: buttonLabel,
+        pageBefore: pageBefore,
+        pageAfter: global.location.pathname,
+        moved: false,
+        reasonPopupOpen: true,
+      };
+    }
+
+    try {
+      await waitFor(function() {
+        return global.location.pathname !== pageBefore;
+      }, 5000, 150);
+    } catch (error) {}
+
+    return {
+      action: "clickSaveNext",
+      button: "Save & Next",
+      buttonLabel: buttonLabel,
+      pageBefore: pageBefore,
+      pageAfter: global.location.pathname,
+      moved: global.location.pathname !== pageBefore,
+    };
   }
 
   async function navigateToUrl(url) {
     if (!url) {
       throw new Error("navigateToUrl requires a url.");
     }
-    // Set location and return immediately — the frame will be removed as the page
-    // navigates, so any code after this line won't reliably execute.
-    // The service worker treats "Frame removed" as a navigation success.
+    var beforePath = global.location.pathname;
     global.location.href = url;
+    // SPA (React Router) navigation: frame is not removed, so wait for the URL
+    // to actually change before returning so evaluateOutcome sees before != after.
+    // Full-page reloads remove the frame before this resolves — that's fine.
+    try {
+      await waitFor(function() {
+        return global.location.pathname !== beforePath;
+      }, 3000, 100);
+    } catch (e) {}
     return { action: "navigateToUrl", url: url };
   }
 
   async function chooseModifyReason(reasonLabel) {
     var label = reasonLabel || "Input Error";
-    var option = visibleTextNodes().find(function(node) {
-      return textOf(node) === label;
-    });
 
-    if (!option) {
+    // Find the radio/checkbox input whose label text matches.
+    // CDMS may use either standard <input type="radio"> or Fluent UI
+    // .cr-clearable-radio-buttons input[type="checkbox"] inside the popup.
+    var radioInput = null;
+    var clickTarget = null;
+    var norm = normalize(label);
+    Array.prototype.slice.call(document.querySelectorAll(
+      "input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']"
+    ))
+      .filter(isVisible)
+      .forEach(function(ri) {
+        if (radioInput) return;
+        var host = ri.closest("label") || ri.parentElement || ri;
+        var hostText = normalize(textOf(host));
+        if (hostText === norm || hostText.indexOf(norm) >= 0) {
+          radioInput = ri;
+          clickTarget = host;
+        }
+      });
+
+    // Fallback: plain visible text node
+    if (!clickTarget) {
+      clickTarget = visibleTextNodes().find(function(node) {
+        return normalize(textOf(node)) === norm || normalize(textOf(node)).indexOf(norm) >= 0;
+      });
+    }
+
+    if (!clickTarget) {
       return {
         action: "chooseModifyReason",
         handled: false,
@@ -1014,22 +1869,37 @@
       };
     }
 
-    clickNode(option);
-    await sleep(150);
+    // Attempt to click the host element (isTrusted=false — Fluent UI will ignore this).
+    // CDP-based selection is handled by service-worker postSavePopupHandler.
+    clickNode(clickTarget);
+    await sleep(200);
 
-    var modalSaveNext = Array.prototype.slice
-      .call(document.querySelectorAll("button"))
-      .filter(isVisible)
-      .find(function(button) {
-        return textOf(button) === "Save & Next" && !button.disabled;
-      });
-
-    if (!modalSaveNext) {
-      throw new Error("Modify reason Save & Next button not found.");
+    // Wait for the popup's own Save button to become enabled after selecting a reason.
+    var popupSave;
+    try {
+      popupSave = await waitFor(function() { return findPopupSaveButton(); }, 2000, 100);
+    } catch (e) {
+      throw new Error("Reason popup Save button not found after selecting: " + label);
     }
 
-    clickNode(modalSaveNext);
-    await sleep(500);
+    var popupBtnLabel = textOf(popupSave);
+    var beforePath = global.location.pathname;
+    clickNode(popupSave);
+    await sleep(300);
+
+    if (popupBtnLabel === "Save & Next") {
+      // Wait for the page to actually navigate before returning so that
+      // evaluateOutcome sees a changed pathname and marks the step "passed".
+      try {
+        await waitFor(function() {
+          return global.location.pathname !== beforePath;
+        }, 4000, 200);
+      } catch (e) {
+        // Navigation didn't happen within 8 s — let evaluateOutcome decide.
+      }
+    } else {
+      await sleep(300); // Save-only: just wait for the save to complete.
+    }
 
     return {
       action: "chooseModifyReason",
@@ -1143,12 +2013,22 @@
       case "selectComboboxOption":
         return selectComboboxOption(step.rowLabel, step.optionLabel);
       case "selectRadio":
-        return selectRadio(step.rowLabel, step.optionLabel);
+        return selectRadio(step.rowLabel, step.optionLabel, step.anchorLabel, step.probeOnly, step.rowLabelOccurrence);
+      case "probeRadio":
+        return probeRadio(step.rowLabel, step.optionLabel, step.anchorLabel, step.rowLabelOccurrence);
       case "clickButtonExact":
         return clickButtonExactByLabel(step.buttonLabel);
-      case "goBack":
+      case "goBack": {
+        var beforeGoBackPath = global.location.pathname;
         global.history.back();
+        await sleep(300);
+        try {
+          await waitFor(function() {
+            return global.location.pathname !== beforeGoBackPath;
+          }, 4000, 200);
+        } catch (e) { /* let evaluateOutcome decide */ }
         return { action: "goBack" };
+      }
       case "navigateToUrl":
         return navigateToUrl(step.url);
       case "clickSave":
@@ -1157,6 +2037,8 @@
         return clickSaveNext();
       case "chooseModifyReason":
         return chooseModifyReason(step.reasonLabel);
+      case "clickQueryAction":
+        return clickQueryAction(step.queryLabel, step.queryAction || "cancel");
       case "assertPath":
         return assertPath(step.pathContains);
       case "capturePage":
@@ -1192,6 +2074,12 @@
             rowLabel: result.rowLabel || step.rowLabel,
             value: result.value || step.value,
             optionLabel: result.optionLabel || step.optionLabel,
+            outcome: result.outcome,
+            skipped: result.skipped === true ? true : undefined,
+            reason: result.reason || undefined,
+            row_visibility: result.row_visibility || undefined,
+            row_availability: result.row_availability || undefined,
+            row_disability: result.row_disability || undefined,
             checked: typeof result.checked === "boolean" ? result.checked : undefined,
             ariaChecked: typeof result.ariaChecked === "boolean" ? result.ariaChecked : undefined,
             saveEnabled: typeof result.saveEnabled === "boolean" ? result.saveEnabled : undefined,
@@ -1268,7 +2156,15 @@
     debugOverlay.style.background = "rgba(17, 24, 39, 0.92)";
     debugOverlay.style.color = "#f9fafb";
     debugOverlay.style.font = "12px/1.4 monospace";
-    debugOverlay.textContent = JSON.stringify(inspectActivePage(), null, 2);
+    var snapshot = inspectActivePage();
+    var summary = {
+      page: snapshot.pageLabel,
+      queryCount: snapshot.queryCount,
+      rawPageLabel: snapshot.rawPageLabel,
+      pageStatus: snapshot.pageStatus,
+      queryRows: snapshot.queryRows,
+    };
+    debugOverlay.textContent = JSON.stringify(summary, null, 2) + "\n\n" + JSON.stringify(snapshot, null, 2);
     document.body.appendChild(debugOverlay);
 
     return true;
@@ -1276,13 +2172,119 @@
 
   installNetworkWatcher();
 
+  // Returns viewport-relative center coords of the <label for="input.id"> for a radio option.
+  // Used by service-worker CDP click so the browser generates a trusted mouse event.
+  function getRadioLabelCoords(rowLabel, optionLabel, anchorLabel, rowLabelOccurrence) {
+    var norm = normalize(optionLabel);
+    var row = findRow(rowLabel, anchorLabel, rowLabelOccurrence);
+    // CDMS uses input[type='checkbox'] inside .cr-clearable-radio-buttons as radio buttons
+    var radios = Array.prototype.slice.call(row.querySelectorAll(
+      "input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']"
+    )).filter(function(r) { return r.isConnected; });
+    for (var i = 0; i < radios.length; i++) {
+      var r = radios[i];
+      var assocLabel = r.id ? document.querySelector("label[for='" + r.id + "']") : null;
+      var host = assocLabel || r.closest("label") || r.parentElement || r;
+      var t = normalize(textOf(host));
+      if (t === norm || t.indexOf(norm) >= 0) {
+        var target = assocLabel || host;
+        target.scrollIntoView({ block: "center", inline: "nearest" });
+        var rect = target.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      }
+    }
+    return null;
+  }
+
+  function isRadioOptionSelected(rowLabel, optionLabel, anchorLabel, rowLabelOccurrence) {
+    var norm = normalize(optionLabel);
+    var row = findRow(rowLabel, anchorLabel, rowLabelOccurrence);
+    var candidates = Array.prototype.slice.call(row.querySelectorAll(
+      "input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox'], [role='radio'], label, button, span"
+    )).filter(function(node) {
+      if (!isVisible(node)) return false;
+      var host = node.closest && node.closest("label") || node;
+      var text = normalize(textOf(host));
+      return text === norm || text.indexOf(norm) >= 0;
+    });
+
+    return candidates.some(function(node) {
+      var input =
+        (node.matches && node.matches("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']") && node) ||
+        (node.querySelector && node.querySelector("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']")) ||
+        (node.closest && node.closest("label") && node.closest("label").querySelector("input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']")) ||
+        null;
+      var roleRadio = node.closest && node.closest("[role='radio']");
+      return !!(input && input.checked) || !!(roleRadio && roleRadio.getAttribute("aria-checked") === "true");
+    });
+  }
+
+  // Returns viewport-relative center coords of the modify-reason radio label.
+  // Used by service-worker CDP click so the browser generates isTrusted=true events.
+  function getModifyReasonLabelCoords(reasonLabel) {
+    if (!hasReasonPopup()) return null;
+    var norm = normalize(reasonLabel);
+    var radios = Array.prototype.slice.call(document.querySelectorAll(
+      "input[type='radio'], .cr-clearable-radio-buttons input[type='checkbox']"
+    )).filter(function(r) { return r.isConnected && isVisible(r); });
+    for (var i = 0; i < radios.length; i++) {
+      var r = radios[i];
+      var host = r.closest("label") || r.parentElement || r;
+      var t = normalize(textOf(host));
+      if (t === norm || t.indexOf(norm) >= 0) {
+        host.scrollIntoView({ block: "center", inline: "nearest" });
+        var rect = host.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      }
+    }
+    // Fallback: find visible text node
+    var node = visibleTextNodes().find(function(n) {
+      return normalize(textOf(n)) === norm;
+    });
+    if (node) {
+      node.scrollIntoView({ block: "center", inline: "nearest" });
+      var rect = node.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }
+    return null;
+  }
+
+  // Returns viewport-relative center coords of the popup's Save/Save & Next button.
+  function getPopupSaveButtonCoords() {
+    var btn = findPopupSaveButton();
+    if (!btn) return null;
+    btn.scrollIntoView({ block: "center", inline: "nearest" });
+    var rect = btn.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
+  function getDateInputCoords(rowLabel) {
+    var row = findRow(rowLabel);
+    var target = row.querySelector("i[data-icon-name='Calendar']")
+      || row.querySelector(".GrDatePicker button")
+      || Array.prototype.slice.call(row.querySelectorAll("button, [role='button'], [tabindex='0']")).find(function(el) {
+        var label = (el.getAttribute("aria-label") || "").toLowerCase();
+        var hasSvg = el.querySelector("svg") !== null;
+        return label.includes("date") || label.includes("달력") || label.includes("calendar") || hasSvg;
+      })
+      || Array.prototype.slice.call(row.querySelectorAll("input")).find(function(node) {
+        return isVisible(node) && node.type !== "hidden";
+      });
+    if (!target) return null;
+    target.scrollIntoView({ block: "center", inline: "nearest" });
+    var rect = target.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
   global.__CDMAgentRunner = {
+    version: RUNNER_VERSION,
     sleep: sleep,
     waitFor: waitFor,
     findRow: findRow,
     setText: setText,
     setDateViaCalendarPopup: setDateViaCalendarPopup,
     selectRadio: selectRadio,
+    probeRadio: probeRadio,
     selectComboboxOption: selectComboboxOption,
     clickSave: clickSave,
     clickSaveNext: clickSaveNext,
@@ -1294,11 +2296,19 @@
     capturePage: capturePage,
     listNavPages: listNavPages,
     inspectActivePage: inspectActivePage,
+    waitForQueryMessages: waitForQueryMessages,
     runCase: runCase,
+    getRadioLabelCoords: getRadioLabelCoords,
+    isRadioOptionSelected: isRadioOptionSelected,
+    getDateInputCoords: getDateInputCoords,
+    getQueryActionCoords: getQueryActionCoords,
+    clickQueryAction: clickQueryAction,
+    getModifyReasonLabelCoords: getModifyReasonLabelCoords,
+    getPopupSaveButtonCoords: getPopupSaveButtonCoords,
     toggleDebugOverlay: toggleDebugOverlay,
     getNetworkEvents: function() {
       return networkEvents.slice();
     },
   };
+  installQueryObserver();
 })(window);
-

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>stop_on_error 제거 및 v0.3.5 생성 보고서</title>
+  <style>
+    body { margin:0; background:#f6f8fb; color:#17212f; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif; line-height:1.58; }
+    main { max-width:1040px; margin:0 auto; padding:32px 24px 56px; }
+    article { background:#fff; border:1px solid #d8dee8; border-radius:8px; padding:30px; }
+    header { border-bottom:1px solid #d8dee8; padding-bottom:16px; margin-bottom:22px; }
+    h1 { margin:0 0 8px; font-size:30px; line-height:1.2; letter-spacing:0; }
+    h2 { margin:26px 0 10px; font-size:19px; letter-spacing:0; }
+    p { margin:8px 0 12px; }
+    ul, ol { margin:8px 0 14px; padding-left:22px; }
+    li { margin:4px 0; }
+    code { padding:2px 5px; border-radius:5px; background:#eef3f8; font-family:"Cascadia Mono",Consolas,monospace; font-size:.92em; }
+    pre { margin:12px 0 16px; padding:14px 16px; overflow:auto; border-radius:8px; background:#111827; color:#f9fafb; font-family:"Cascadia Mono",Consolas,monospace; font-size:13px; line-height:1.5; }
+    table { width:100%; border-collapse:collapse; border:1px solid #d8dee8; margin-top:10px; }
+    th,td { border-bottom:1px solid #d8dee8; padding:9px 11px; text-align:left; vertical-align:top; }
+    th { background:#eef3f8; font-weight:700; }
+    .meta { display:flex; flex-wrap:wrap; gap:8px; color:#5f6b7a; font-size:13px; }
+    .summary { border-left:4px solid #1d5fd6; background:#f8fbff; padding:12px 14px; margin:16px 0; }
+    .ok { color:#007a5a; font-weight:700; }
+  </style>
+</head>
+<body>
+<main>
+  <article>
+    <header>
+      <h1>stop_on_error 제거 및 v0.3.5 생성 보고서</h1>
+      <div class="meta">
+        <span>Date: 2026-05-27 (_260527)</span>
+        <span>Project: CDMS-Agent</span>
+        <span>Notebook: CDMS-Agent_test_v0.3.5.ipynb</span>
+      </div>
+    </header>
+
+    <section class="summary">
+      <p>
+        <code>stop_on_error</code>는 현재 daemon/extension 기반 실행 구조에서 실질적인 문제 해결 수단이 아니므로 제거했습니다.
+        이제 Python client와 생성 notebook은 실패를 예외 제어로 숨기지 않고, daemon이 반환하는 실행 결과를 그대로 다루는 방향입니다.
+      </p>
+    </section>
+
+    <section>
+      <h2>제거한 이유</h2>
+      <table>
+        <thead><tr><th>항목</th><th>문제</th><th>결정</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>agent.stop_on_error = False</code></td>
+            <td>notebook 셀에 반복적으로 들어가지만, 현재 실패 원인인 DOM 클릭/date commit 문제를 해결하지 못합니다.</td>
+            <td>생성 셀에서 제거.</td>
+          </tr>
+          <tr>
+            <td><code>CDMSAgent(stop_on_error=False)</code></td>
+            <td>사용자가 이 값을 바꿔도 daemon/extension runner의 실제 클릭 성공률에는 영향이 없습니다.</td>
+            <td>Python client 생성자 옵션에서 제거.</td>
+          </tr>
+          <tr>
+            <td><code>CRFRun(..., stop_on_error=...)</code></td>
+            <td>하네스가 실패를 멈출지 말지 제어하는 것보다, 실패 원인을 DOM runner에서 바로 고치는 것이 우선입니다.</td>
+            <td>CRF case 실행 wrapper에서 제거.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>수정 내용</h2>
+      <ul>
+        <li><code>src/cdm_agent_client/client.py</code>: <code>stop_on_error</code> 생성자 인자와 예외 분기 제거.</li>
+        <li><code>src/cdm_agent_client/crf/notebook.py</code>: 생성 notebook에서 <code>agent.stop_on_error = False</code> 제거.</li>
+        <li><code>src/cdm_agent_client/crf/run.py</code>, <code>models.py</code>: <code>stop_on_error</code> 전달 인자 제거.</li>
+        <li><code>docs</code>, 기존 notebook 예제에서 <code>stop_on_error</code> 사용 흔적 제거.</li>
+        <li><code>CDMS-Agent_test_v0.3.5.ipynb</code> 신규 생성.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>실행 결과</h2>
+      <pre><code>Notebook:
+  C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB\CDMS-Agent_test_v0.3.5.ipynb
+
+checks:
+  cells: 46
+  stop_on_error: 0
+  Expected Result: 0
+  expected_result: 0
+  has_query: 0
+  check_result: 0
+  CASE_CHECK: 0
+  query triggers/query auto/query manual: 0
+  row_is_editable(: 15
+  SKIP not editable: 14
+
+tests:
+  compileall: pass
+  pytest: 38 passed</code></pre>
+    </section>
+
+    <section>
+      <h2>다음 액션</h2>
+      <ol>
+        <li>Chrome extension reload 후 <code>v0.3.5</code> notebook의 연결 cell을 다시 실행합니다.</li>
+        <li><code>생년월일</code> 단일 <code>set_date</code> step을 먼저 실행해 date picker/commit을 확인합니다.</li>
+        <li>실패하면 <code>stop_on_error</code>를 조정하지 말고 daemon/extension DOM runner를 수정합니다.</li>
+        <li><code>성별</code>, <code>가임 여부</code> radio 클릭도 단일 step으로 확인합니다.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>결론</h2>
+      <p>
+        현재 자동화의 핵심 병목은 Python 예외 제어가 아니라 browser runner의 DOM 인식과 trusted click/date commit입니다.
+        따라서 <code>stop_on_error</code>는 제거하고, 문제는 daemon/extension runner에서 직접 고치는 방향이 맞습니다.
+      </p>
+    </section>
+  </article>
+</main>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CDMS-Agent Client Guide</title>
+  <style>
+    :root { --bg:#f5f7fa; --panel:#fff; --ink:#17212f; --muted:#607083; --line:#d7dee9; --soft:#eef3f8; --blue:#1d5fd6; --code:#edf1f7; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif; line-height:1.62; }
+    main { max-width:1120px; margin:0 auto; padding:38px 24px 72px; }
+    header { padding:22px 0 24px; border-bottom:1px solid var(--line); }
+    h1 { margin:0 0 10px; font-size:34px; line-height:1.18; letter-spacing:0; }
+    h2 { margin:42px 0 14px; font-size:24px; line-height:1.3; letter-spacing:0; }
+    h3 { margin:20px 0 8px; font-size:18px; letter-spacing:0; }
+    p { margin:8px 0 14px; }
+    .lead { max-width:920px; color:var(--muted); font-size:17px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; }
+    code { padding:2px 5px; border-radius:5px; background:var(--code); color:#111827; font-family:"Cascadia Mono",Consolas,monospace; font-size:.92em; }
+    pre { margin:12px 0 18px; padding:14px 16px; overflow-x:auto; border-radius:8px; background:#111827; color:#f9fafb; font-family:"Cascadia Mono",Consolas,monospace; font-size:13px; line-height:1.52; }
+    pre code { padding:0; background:transparent; color:inherit; }
+    table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); }
+    th,td { border-bottom:1px solid var(--line); padding:10px 12px; text-align:left; vertical-align:top; }
+    th { background:var(--soft); }
+    .tag { display:inline-block; margin:0 6px 6px 0; padding:2px 8px; border-radius:999px; background:var(--soft); color:var(--muted); font-size:13px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>CDMS-Agent Client Guide</h1>
+    <p class="lead">
+      <code>cdm_agent_client</code>는 Python/Jupyter에서 daemon HTTP API를 통해 Chrome extension runner를 호출합니다.
+      Python이 DOM을 직접 조작하지 않고, 브라우저에 연결된 runner가 실제 CDMS 화면에서 입력과 저장을 수행합니다.
+    </p>
+  </header>
+
+  <section>
+    <h2>연결 구조</h2>
+    <pre><code>Notebook
+  -> CDMSAgent
+  -> daemon http://127.0.0.1:3200
+  -> browser client websocket
+  -> extension runner
+  -> CDMS page
+  -> StepResult / PageSnapshot</code></pre>
+  </section>
+
+  <section>
+    <h2>빠른 시작</h2>
+    <pre><code>import sys
+sys.path.insert(0, r"C:\Users\SunbeomGwon\CDMS-Agent\src")
+
+from cdm_agent_client import CDMSAgent
+
+agent = CDMSAgent(
+    base_url="http://127.0.0.1:3200",
+)
+
+print("daemon:", agent.ping())
+snapshot = agent.inspect()
+print("page:", snapshot.page_label)
+print("path:", snapshot.pathname)
+print("structured rows:", len(snapshot.structured_rows))</code></pre>
+  </section>
+
+  <section>
+    <h2>PageSnapshot</h2>
+    <p>
+      <code>inspect()</code>는 현재 페이지의 query 상태와 visible row뿐 아니라 row별 조작 가능 여부를 반환합니다.
+      이 값이 notebook의 <code>row_is_editable()</code> guard에 사용됩니다.
+    </p>
+    <pre><code>snapshot = agent.inspect()
+
+print(snapshot.page_label)
+print(snapshot.pathname)
+print(snapshot.invalid_count)
+print(snapshot.invalid_row_labels)
+print(snapshot.visible_rows)
+print(snapshot.structured_rows)</code></pre>
+    <table>
+      <thead><tr><th>필드</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr><td><code>visible_rows</code></td><td>현재 화면에서 보이는 row label 목록입니다.</td></tr>
+        <tr><td><code>structured_rows</code></td><td>row label, editable, disabled, controlType, options를 포함한 구조화 row 상태입니다.</td></tr>
+        <tr><td><code>invalid_count</code></td><td>저장 후 표시되는 query/invalid 표시 개수입니다.</td></tr>
+        <tr><td><code>invalid_row_labels</code></td><td>query가 표시된 row label 목록입니다.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Row-State Guard</h2>
+    <p>생성 notebook은 다음과 같은 패턴으로 비활성 필드를 자동으로 건너뜁니다.</p>
+    <pre><code>if row_is_editable("비가임 사유"):
+    agent.select_radio("비가임 사유", "기타", page_id="DM", visit_id="V1")
+else:
+    print("SKIP not editable:", "비가임 사유")</code></pre>
+    <p>
+      따라서 <code>가임 여부 = 예</code> 선택 후 <code>비가임 사유</code>가 비활성화되는 화면에서는
+      해당 입력에서 멈추지 않고 다음 입력인 <code>수유 여부</code>로 넘어갈 수 있습니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>주요 API</h2>
+    <div class="grid">
+      <div class="card"><h3>연결</h3><p><code>ping()</code>, <code>clients()</code>, <code>inspect()</code></p></div>
+      <div class="card"><h3>입력</h3><p><code>set_date()</code>, <code>set_text()</code>, <code>select_radio()</code>, <code>select_option()</code></p></div>
+      <div class="card"><h3>저장/이동</h3><p><code>click_save()</code>, <code>click_save_next()</code>, <code>go_to_page()</code>, <code>navigate_to()</code></p></div>
+      <div class="card"><h3>Query 확인</h3><p><code>has_query()</code>, <code>check_result("Query")</code>, <code>check_result("No Query")</code></p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>주의사항</h2>
+    <ul>
+      <li>Query 발생 여부는 입력 직후가 아니라 저장 후 확인합니다.</li>
+      <li>현재 페이지에 이미 있으면 notebook은 불필요한 이동을 피할 수 있습니다.</li>
+      <li>extension runner JS 수정 후에는 Chrome extension 또는 Tampermonkey script를 다시 로드해야 새 inspect 필드가 반영됩니다.</li>
+    </ul>
+    <div>
+      <span class="tag">CDMSAgent</span>
+      <span class="tag">PageSnapshot</span>
+      <span class="tag">structured_rows</span>
+      <span class="tag">row_is_editable</span>
+      <span class="tag">post-save query check</span>
+    </div>
+  </section>
+</main>
+</body>
+</html>

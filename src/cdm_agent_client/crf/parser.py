@@ -20,7 +20,7 @@ def can_parse(cond: dict | None) -> bool:
             else:  # AND — 모든 branch가 파싱 가능해야 전체 조건 커버 가능
                 return all(walk(c) for c in node["expr"])
         if is_null_guard(node):
-            return False
+            return True
         right = node.get("right")
         if isinstance(right, (int, float)):
             return True
@@ -85,12 +85,17 @@ def parse_visibility(vis_spec) -> list[dict]:
     return rules
 
 
-def parse_availability(avail_spec: dict | None) -> dict | None:
+def parse_availability(avail_spec: dict | list | None) -> dict | None:
     """availability spec → {ctrl_item_id, enable_val, disable_val, condition}.
 
     Only handles ref:ITEM pattern (most common). Returns None for complex specs.
     """
-    if not avail_spec or avail_spec.get("ref") != "ITEM":
+    if isinstance(avail_spec, list):
+        if len(avail_spec) != 1 or not isinstance(avail_spec[0], dict):
+            return None
+        avail_spec = avail_spec[0]
+
+    if not avail_spec or not isinstance(avail_spec, dict) or avail_spec.get("ref") != "ITEM":
         return None
     operand = avail_spec.get("operand")
     return {

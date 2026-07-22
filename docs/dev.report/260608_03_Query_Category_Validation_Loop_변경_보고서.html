@@ -1,0 +1,89 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>CDMS-Agent Query Category Validation Loop 변경 보고서</title>
+  <style>
+    body { font-family: Arial, "Malgun Gothic", sans-serif; margin: 32px; color: #1f2933; line-height: 1.55; }
+    h1, h2 { color: #102a43; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0 24px; }
+    th, td { border: 1px solid #bcccdc; padding: 8px; vertical-align: top; }
+    th { background: #f0f4f8; }
+    code { background: #f0f4f8; padding: 2px 4px; }
+  </style>
+</head>
+<body>
+  <h1>CDMS-Agent Query Category Validation Loop 변경 보고서</h1>
+
+  <h2>배경</h2>
+  <p>기존 Rule Discovery loop는 모든 query candidate를 같은 방식으로 실행하고, 저장 후 화면에 남아 있는 query 중 candidate label과 매칭되는 항목만 결과로 사용했다. 이 방식은 화면에 남아 있는 이전 query, 실제 query label과 candidate target label 불일치, missing/range/calculation/조건 조합 query 혼재 때문에 PASS/FAIL 해석이 불안정했다.</p>
+
+  <h2>변경 요약</h2>
+  <table>
+    <thead><tr><th>영역</th><th>변경 내용</th></tr></thead>
+    <tbody>
+      <tr><td>Candidate taxonomy</td><td><code>query_category</code>, <code>condition_type</code>를 query candidate에 추가했다.</td></tr>
+      <tr><td>Candidate steps</td><td>신규 실행 로직은 <code>condition_steps</code>를 우선 사용하고, 기존 <code>steps</code>는 backward compatibility로 유지한다.</td></tr>
+      <tr><td>Runtime loop</td><td>기존 <code>run_rule_discovery_loop()</code>를 유지하고 <code>query_observation_mode</code> 옵션을 추가했다.</td></tr>
+      <tr><td>per_candidate mode</td><td>candidate 실행 전/후 query snapshot을 비교해 새로 발생한 query만 관찰 대상으로 사용한다.</td></tr>
+      <tr><td>sweep mode</td><td>loop 시작/종료 snapshot diff로 누적 query를 정리하고, 결과는 validation PASS/FAIL과 분리한다.</td></tr>
+      <tr><td>Notebook</td><td>DM notebook을 <code>CDMS-Agent_test_DM_v0.6.16.ipynb</code>로 생성하고 category별 셀을 물리적으로 분리했다.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Query Category 기준</h2>
+  <ul>
+    <li><code>missing_query</code>: 입력 누락 또는 required 기반 query</li>
+    <li><code>condition_query</code>: 특정 condition item 값이 충족될 때 발생하는 query</li>
+    <li><code>range_query</code>: 허용 범위 또는 방문 window 이탈 query</li>
+    <li><code>calculation_query</code>: 자동 계산/derived item 검증 query</li>
+    <li><code>consistency_query</code>: 여러 item 간 의미 불일치 query</li>
+    <li><code>unsupported_query</code>: 자동화 불가 또는 해석 제한 query</li>
+  </ul>
+
+  <h2>Condition Type 기준</h2>
+  <ul>
+    <li><code>none</code>: condition item 없음</li>
+    <li><code>single</code>: 같은 page condition item 1개</li>
+    <li><code>multi</code>: 같은 page condition item 2개 이상</li>
+    <li><code>cross</code>: 다른 page/visit/section 참조 필요</li>
+    <li><code>derived</code>: 계산/자동 산출값 참조</li>
+    <li><code>unsupported</code>: 자동 실행 불가</li>
+  </ul>
+
+  <h2>DM 검증 결과</h2>
+  <p>재생성 후 DM candidate는 13건이며, query candidate 8건, availability candidate 5건이다. D_DM_5는 아래처럼 분류되었다.</p>
+  <table>
+    <thead><tr><th>DVS ID</th><th>query_category</th><th>condition_type</th><th>condition_items</th><th>condition_steps</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>D_DM_5</td>
+        <td>condition_query</td>
+        <td>multi</td>
+        <td>OPINDCL=3, OPINDCR=3</td>
+        <td>[좌측 유방] 수술 목적 = 해당사항 없음, [우측 유방] 수술 목적 = 해당사항 없음</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>생성 산출물</h2>
+  <ul>
+    <li><code>src/crfs/20260325_PRACTICE_GSB/CDMS-Agent_rule_discovery_candidates_DM_v0.2.json</code></li>
+    <li><code>src/crfs/20260325_PRACTICE_GSB/CDMS-Agent_test_DM_v0.6.16.ipynb</code></li>
+    <li><code>src/crfs/20260325_PRACTICE_GSB/260604_01_Screening_Pages_Rule_Discovery_생성_보고서.html</code></li>
+    <li><code>src/crfs/20260325_PRACTICE_GSB/260608_03_Query_Category_Validation_Loop_변경_보고서.html</code></li>
+  </ul>
+
+  <h2>테스트 결과</h2>
+  <p><code>python -m pytest</code> 결과: 71 passed.</p>
+
+  <h2>남은 리스크</h2>
+  <ul>
+    <li>OR branch는 현재 simple comparison metadata를 보존하지만 branch별 candidate 분리는 아직 제한적이다.</li>
+    <li>appendable table 내부 row/column control은 별도 개발 대상이다.</li>
+    <li>query message label과 DVS issue/condition label이 다르게 표시되는 경우 sweep 결과를 기준으로 추가 mapping rule이 필요할 수 있다.</li>
+    <li>no_query_expected 검증은 page cleanup/reset 전략이 없으면 이전 query 잔존 영향을 받을 수 있어 per_candidate diff를 우선 사용해야 한다.</li>
+  </ul>
+</body>
+</html>
+

@@ -5,13 +5,13 @@ from typing import Any
 
 import requests
 
-from .exceptions import CDMAgentError, DaemonNotRunningError, NoBrowserClientError, StepFailedError
+from .exceptions import CDMAgentError, DaemonNotRunningError, NoBrowserClientError
 from .models import PageList, PageSnapshot, StepResult
 
-_DEFAULT_URL = "http://127.0.0.1:3100"
+_DEFAULT_URL = "http://127.0.0.1:3200"
 
 
-class CDMAgent:
+class CDMSAgent:
     """Python client for the CDM Agent daemon.
 
     Wraps the daemon's HTTP API so CDMS browser sessions can be driven from
@@ -21,7 +21,7 @@ class CDMAgent:
     Parameters
     ----------
     base_url:
-        Base URL of the running daemon (default ``http://127.0.0.1:3100``).
+        Base URL of the running daemon (default ``http://127.0.0.1:3200``).
     study_id:
         Optional study identifier forwarded with every request so the daemon
         can persist session state and link executions to the correct study.
@@ -31,10 +31,6 @@ class CDMAgent:
     run_timeout:
         Timeout for ``run_case``-based calls (``set_date``, ``click_save_next``).
         These block until the browser step completes.
-    raise_on_failure:
-        When ``True`` (default), steps that return outcome ``failed`` or
-        ``blocked`` raise :class:`StepFailedError`.  Set to ``False`` to get
-        the :class:`StepResult` back regardless.
     runner:
         Browser runner type registered with the daemon.  Chrome extension
         clients register as ``"extension"`` (default).  Tampermonkey-based
@@ -48,14 +44,12 @@ class CDMAgent:
         study_id: str | None = None,
         timeout: int = 30,
         run_timeout: int = 120,
-        raise_on_failure: bool = True,
         runner: str = "extension",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.study_id = study_id
         self.timeout = timeout
         self.run_timeout = run_timeout
-        self.raise_on_failure = raise_on_failure
         self.runner = runner
         self._session = requests.Session()
         self._session.headers["Content-Type"] = "application/json"
@@ -184,9 +178,19 @@ class CDMAgent:
         *,
         page_id: str | None = None,
         visit_id: str | None = None,
+        anchor_label: str | None = None,
+        row_label_occurrence: int | None = None,
+        probe_only: bool = False,
         client_id: str | None = None,
     ) -> StepResult:
         """Select a radio button option."""
+        step: dict[str, Any] = {"action": "selectRadio", "rowLabel": row_label, "optionLabel": option_label}
+        if anchor_label:
+            step["anchorLabel"] = anchor_label
+        if row_label_occurrence:
+            step["rowLabelOccurrence"] = row_label_occurrence
+        if probe_only:
+            step["probeOnly"] = True
         case = {
             "id": f"py:{uuid.uuid4()}",
             "studyId": self.study_id or "unknown",
@@ -196,7 +200,38 @@ class CDMAgent:
             "pageId": page_id,
             "visitId": visit_id,
             "preconditions": [],
-            "steps": [{"action": "selectRadio", "rowLabel": row_label, "optionLabel": option_label}],
+            "steps": [step],
+            "expected": {},
+        }
+        return self._run_case(case, client_id=client_id)
+
+    def probe_radio(
+        self,
+        row_label: str,
+        option_label: str,
+        *,
+        page_id: str | None = None,
+        visit_id: str | None = None,
+        anchor_label: str | None = None,
+        row_label_occurrence: int | None = None,
+        client_id: str | None = None,
+    ) -> StepResult:
+        """Try selecting a radio-like option and report whether it became checked."""
+        step: dict[str, Any] = {"action": "probeRadio", "rowLabel": row_label, "optionLabel": option_label}
+        if anchor_label:
+            step["anchorLabel"] = anchor_label
+        if row_label_occurrence:
+            step["rowLabelOccurrence"] = row_label_occurrence
+        case = {
+            "id": f"py:{uuid.uuid4()}",
+            "studyId": self.study_id or "unknown",
+            "source": "python_client",
+            "kind": "status_expected",
+            "title": f"Probe radio: {row_label} = {option_label}",
+            "pageId": page_id,
+            "visitId": visit_id,
+            "preconditions": [],
+            "steps": [step],
             "expected": {},
         }
         return self._run_case(case, client_id=client_id)
@@ -284,6 +319,9 @@ class CDMAgent:
         parts = snap.pathname.rstrip("/").split("/")
         tokens = segment.strip("/").split("/")
 
+        if len(parts) >= 9 and parts[-5] == "EN":
+            parts[-5] = "NV"
+
         if len(tokens) == 1:
             # "DM" → replace pageId, reset pageNum to 1
             parts[-2], parts[-1] = tokens[0], "1"
@@ -347,6 +385,55 @@ class CDMAgent:
         common operations prefer :meth:`set_date` and :meth:`click_save_next`.
         """
         return self._run_case(case_payload, client_id=client_id)
+
+    def wait_query(
+        self,
+        labels: list[str] | tuple[str, ...] | None = None,
+        *,
+        timeout_ms: int = 3000,
+        client_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Wait in the browser extension until matching Query messages appear.
+
+        This uses an extension-side MutationObserver instead of repeated Python
+        inspect polling. If no matching query appears before ``timeout_ms``, the
+        daemon returns ``{"outcome": "no_query_observed"}``.
+        """
+        body: dict[str, Any] = {
+            "labels": list(labels or []),
+            "timeout_ms": timeout_ms,
+        }
+        if client_id:
+            body["client_id"] = client_id
+        return self._post("/api/cdm-agent/wait-query", body, timeout=max(self.timeout, int(timeout_ms / 1000) + 5))
+
+    def clear_query(
+        self,
+        label: str,
+        *,
+        action: str = "cancel",
+        client_id: str | None = None,
+        page_id: str | None = None,
+        visit_id: str | None = None,
+    ) -> StepResult:
+        """Click a visible action on the Query row matching *label*.
+
+        The default action is ``cancel`` because Rule Discovery uses this only
+        to remove stale query rows before the next candidate observation.
+        """
+        case = {
+            "id": f"py:{uuid.uuid4()}",
+            "studyId": self.study_id or "unknown",
+            "source": "python_client",
+            "kind": "status_expected",
+            "title": f"Clear query {label}",
+            "pageId": page_id,
+            "visitId": visit_id,
+            "preconditions": [],
+            "steps": [{"action": "clickQueryAction", "queryLabel": label, "queryAction": action}],
+            "expected": {},
+        }
+        return self._run_case(case, client_id=client_id)
 
     def list_pages(self, *, client_id: str | None = None) -> "PageList":
         """Return the CRF pages available in the current visit sidebar.
@@ -500,10 +587,6 @@ class CDMAgent:
 
         data = self._post("/api/cdm-agent/run-case", body, timeout=self.run_timeout)
         result = StepResult.from_api(data)
-
-        if self.raise_on_failure and not result.ok:
-            raise StepFailedError(result.outcome, result.failure_reason)
-
         return result
 
     def _get(self, path: str, params: dict[str, str] | None = None) -> dict[str, Any]:
@@ -528,7 +611,11 @@ class CDMAgent:
         return resp.json()
 
     def __repr__(self) -> str:
-        return f"CDMAgent(base_url={self.base_url!r}, study_id={self.study_id!r}, runner={self.runner!r})"
+        return f"CDMSAgent(base_url={self.base_url!r}, study_id={self.study_id!r}, runner={self.runner!r})"
+
+
+# Backward-compatible alias for notebooks/scripts created before the rename.
+CDMAgent = CDMSAgent
 
 
 def _raise_for_status(resp: requests.Response, path: str) -> None:

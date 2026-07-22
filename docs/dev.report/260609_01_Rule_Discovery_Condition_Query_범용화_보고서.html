@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>CDMS-Agent Rule Discovery Condition Query 범용화 보고서</title>
+  <style>
+    body { font-family: Arial, "Malgun Gothic", sans-serif; margin: 32px; color: #1f2933; line-height: 1.55; }
+    h1, h2 { color: #102a43; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0 24px; }
+    th, td { border: 1px solid #bcccdc; padding: 8px; vertical-align: top; }
+    th { background: #f0f4f8; }
+    code { background: #f0f4f8; padding: 2px 4px; }
+  </style>
+</head>
+<body>
+  <h1>CDMS-Agent Rule Discovery Condition Query 범용화 보고서</h1>
+
+  <h2>목적</h2>
+  <p>Rule Discovery candidate를 특정 DVS ID나 특정 과제에 맞춰 하드코딩하지 않고, CRF TypeScript의 <code>trigger.ts</code>에 정의된 <code>conditional</code> 구조를 해석해 생성하도록 정리했다. 이번 버전의 notebook은 <code>v0.7.0</code>이다.</p>
+
+  <h2>범용 해석 원칙</h2>
+  <table>
+    <thead><tr><th>항목</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td>원천</td><td>CRF TypeScript trigger의 <code>conditional</code>, <code>issue</code>, page field/option map을 사용한다.</td></tr>
+      <tr><td>단순 비교</td><td><code>A = 1</code>, <code>A != 2</code> 같은 leaf expression을 <code>condition_items</code>로 추출한다.</td></tr>
+      <tr><td>AND 조건</td><td>같은 candidate 안에 모든 condition step을 포함한다.</td></tr>
+      <tr><td>OR branch</td><td><code>(A OR B) AND C</code>를 <code>A AND C</code>, <code>B AND C</code> 형태의 branch candidate로 분리한다.</td></tr>
+      <tr><td>UI 값 변환</td><td>DB value는 page field option map을 통해 UI label로 변환한다.</td></tr>
+      <tr><td>하드코딩 금지</td><td>D_DM_7_1 같은 특정 DVS ID 조건문을 코드에 직접 넣지 않는다.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Candidate 필드</h2>
+  <ul>
+    <li><code>query_category</code>: <code>condition_query</code>, <code>range_query</code>, <code>missing_query</code> 등 query 발생 원인 분류</li>
+    <li><code>condition_type</code>: <code>single</code>, <code>multi</code>, <code>cross</code>, <code>derived</code>, <code>unsupported</code></li>
+    <li><code>condition_items</code>: trigger conditional에서 추출한 item/operator/value/ui_value 목록</li>
+    <li><code>condition_steps</code>: 실제 browser automation 실행 step</li>
+    <li><code>condition_branch_index</code>, <code>condition_branch_count</code>: OR branch가 분리된 경우 branch metadata</li>
+  </ul>
+
+  <h2>D_DM_7_1 검증 예시</h2>
+  <p>D_DM_7_1은 아래 조건을 가진다.</p>
+  <pre><code>(OPINDCL = 2 OR OPINDCR = 2) AND BMYN = 2</code></pre>
+  <p>범용 branch 확장 결과는 다음과 같다.</p>
+  <table>
+    <thead><tr><th>Candidate</th><th>Condition</th><th>UI step</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>D_DM_7_1__branch1</code></td>
+        <td><code>OPINDCL=2 AND BMYN=2</code></td>
+        <td>[좌측 유방] 수술 목적 = 유방재건술, 유방암 병력이 있습니까? = 아니요</td>
+      </tr>
+      <tr>
+        <td><code>D_DM_7_1__branch2</code></td>
+        <td><code>OPINDCR=2 AND BMYN=2</code></td>
+        <td>[우측 유방] 수술 목적 = 유방재건술, 유방암 병력이 있습니까? = 아니요</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Runtime Loop</h2>
+  <p>기존 <code>run_rule_discovery_loop()</code>를 유지한다. <code>query_observation_mode="per_candidate"</code>에서는 candidate 실행 전후 query snapshot diff를 사용하고, <code>sweep</code> mode에서는 누적 query를 정리한다.</p>
+
+  <h2>Notebook v0.7.0</h2>
+  <p>Screening page별 notebook은 <code>CDMS-Agent_test_&lt;PAGE_ID&gt;_v0.7.0.ipynb</code> 이름으로 생성된다. Cell은 query category별로 분리되어 있으며, Condition Query - Multi 셀은 branch candidate를 loop로 실행할 수 있다.</p>
+
+  <h2>남은 제한</h2>
+  <ul>
+    <li>복잡한 nested OR/AND가 과도하게 커지는 경우 branch explosion 제한이 필요하다.</li>
+    <li>appendable table 내부 row/column control은 별도 개발 대상이다.</li>
+    <li>cross-page condition은 현재 page 단독 자동 실행 대상에서 분리해야 한다.</li>
+    <li>custom function, item-to-item 계산 비교는 추가 parser가 필요하다.</li>
+  </ul>
+
+  <h2>검증</h2>
+  <p><code>python -m pytest</code> 통과를 기준으로 한다. Generator 실행 후 DM candidate에서 D_DM_7_1 branch 2개가 생성되는지 확인한다.</p>
+</body>
+</html>

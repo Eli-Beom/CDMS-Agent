@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Browser-Assisted Harness Update Report</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --paper: #ffffff;
+      --ink: #17212f;
+      --muted: #5f6b7a;
+      --line: #d8dee8;
+      --soft: #eef3f8;
+      --blue: #1d5fd6;
+      --green: #007a5a;
+      --amber: #9a6700;
+      --red: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+      line-height: 1.55;
+    }
+    main {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 32px 24px 56px;
+    }
+    .sheet {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 30px;
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+      margin-bottom: 22px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 26px 0 10px;
+      font-size: 19px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+    p { margin: 8px 0 12px; }
+    ul { margin: 8px 0 14px; padding-left: 22px; }
+    li { margin: 4px 0; }
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: var(--soft);
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 0.92em;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      border: 1px solid var(--line);
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 11px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: var(--soft);
+      font-weight: 700;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 12px;
+      margin: 0 5px 5px 0;
+    }
+    .summary {
+      border-left: 4px solid var(--blue);
+      background: #f8fbff;
+      padding: 12px 14px;
+      margin: 16px 0;
+    }
+    .ok { color: var(--green); font-weight: 700; }
+    .warn { color: var(--amber); font-weight: 700; }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin: 12px 0 18px;
+    }
+    .step {
+      min-height: 74px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      font-size: 13px;
+    }
+    .step b {
+      display: block;
+      color: var(--blue);
+      margin-bottom: 4px;
+    }
+    @media print {
+      body { background: #fff; }
+      main { max-width: none; padding: 0; }
+      .sheet { border: 0; border-radius: 0; }
+    }
+    @media (max-width: 820px) {
+      .flow { grid-template-columns: 1fr; }
+      .sheet { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <article class="sheet">
+    <header>
+      <h1>Browser-Assisted Harness Update Report</h1>
+      <div class="meta">
+        <span>Project: CDMS-Agent</span>
+        <span>Date: 2026-05-27 (_260527)</span>
+        <span>Scope: CRF/DVS notebook automation</span>
+      </div>
+    </header>
+
+    <section class="summary">
+      <p>
+        이번 업데이트의 핵심 의도는 “CRF 코드를 완벽히 해석해서 모든 DVS rule을 자동화”하는 방향이 아니라,
+        현재 브라우저 화면을 inspect해서 <strong>지금 실제로 입력 가능한 항목만 안전하게 실행</strong>하도록 하네스를 바꾸는 것입니다.
+      </p>
+    </section>
+
+    <section>
+      <h2>개발 배경</h2>
+      <ul>
+        <li>과제별 CRF 구조, label, option, precondition이 크게 달라 정적 코드 분석만으로는 안정적인 자동화가 어렵습니다.</li>
+        <li>예: <code>가임 여부 = 예</code> 선택 후 <code>비가임 사유</code>가 비활성화되면, 기존 셀은 해당 row를 계속 누르려다 멈출 수 있습니다.</li>
+        <li>Query는 입력 직후가 아니라 저장 후 표시되므로, step 실행과 save 이후 확인을 분리해야 합니다.</li>
+        <li>SQLite에 실패 데이터를 계속 축적해 추천하는 방식은 현재 단계에서는 운영 부담이 커서 active 기능에서 제외했습니다.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>변경된 방향</h2>
+      <div class="flow">
+        <div class="step"><b>1. CRF 코드</b>Query 후보 case 생성</div>
+        <div class="step"><b>2. Browser Inspect</b>현재 화면 row 상태 확인</div>
+        <div class="step"><b>3. Row Guard</b>입력 가능 row만 실행</div>
+        <div class="step"><b>4. Save</b>저장 후 피드백 대기</div>
+        <div class="step"><b>5. Query Check</b>post-save snapshot 확인</div>
+      </div>
+      <p>
+        기본 모드는 <code>browser-assisted</code>입니다. CRFRunner가 만든 후보를 현재 브라우저 상태와 결합하고,
+        notebook 셀은 사람이 한 단계씩 확인하며 실행할 수 있게 생성됩니다.
+      </p>
+    </section>
+
+    <section>
+      <h2>주요 업데이트</h2>
+      <table>
+        <thead>
+          <tr><th>영역</th><th>업데이트 내용</th><th>의도</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Daemon / Extension Inspect</td>
+            <td><code>structuredRows</code> 추가: <code>rowLabel</code>, <code>editable</code>, <code>disabled</code>, <code>controlType</code>, <code>options</code></td>
+            <td>현재 UI에서 row가 실제로 조작 가능한지 판단</td>
+          </tr>
+          <tr>
+            <td>Python Client</td>
+            <td><code>PageSnapshot.structured_rows</code> 추가</td>
+            <td>notebook/Python 코드에서 row 상태를 직접 사용</td>
+          </tr>
+          <tr>
+            <td>Notebook 생성</td>
+            <td>입력 전에 <code>row_is_editable()</code> 확인, 비활성 row는 <code>SKIP</code></td>
+            <td>조건부 비활성 필드에서 자동화가 멈추지 않게 함</td>
+          </tr>
+          <tr>
+            <td>Query 확인</td>
+            <td><code>click_save()</code> 후 <code>inspect()</code>, <code>check_result()</code> 실행</td>
+            <td>저장 후에만 확인 가능한 query 피드백 반영</td>
+          </tr>
+          <tr>
+            <td>불필요 기능 제거</td>
+            <td>SQLite run store, SuggestionEngine, pending suggestion CLI/test 제거</td>
+            <td>현재 단계의 목표인 “되는 것만 실행하고 넘어가기”에 집중</td>
+          </tr>
+          <tr>
+            <td>문서</td>
+            <td>하네스/CRF 패키지/클라이언트 HTML 문서를 browser-assisted 기준으로 재작성</td>
+            <td>개발 방향과 사용 기준을 한 방향으로 정리</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Inspect로 확인하려는 것</h2>
+      <p>
+        단순히 화면의 텍스트를 모으는 것이 아니라, row 단위로 다음 정보를 분리해서 봅니다.
+      </p>
+      <ul>
+        <li><code>rowLabel</code>: 자동화가 조작할 기준 row 이름. 예: 성별, 가임 여부, 비가임 사유, 수유 여부</li>
+        <li><code>options</code>: radio/select 선택지. 예: 남성, 여성, 예, 아니요</li>
+        <li><code>editable</code>: 지금 입력 가능한지 여부</li>
+        <li><code>disabled</code>: 보이지만 비활성화되어 있는지 여부</li>
+        <li><code>controlType</code>: radio, input, textarea, select 등 입력 방식</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>검증 결과</h2>
+      <ul>
+        <li><span class="ok">PASS</span> Python compile 확인</li>
+        <li><span class="ok">PASS</span> test suite: <code>38 passed</code></li>
+        <li><span class="ok">PASS</span> 생성 notebook에 <code>row_is_editable</code>, <code>SKIP not editable</code>, <code>CASE_CHECK</code> 포함</li>
+        <li><span class="ok">PASS</span> extension reload 후 inspect에서 <code>structuredRows</code> 수신 확인</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>현재 상태와 다음 작업</h2>
+      <p>
+        현재 extension 연결은 정상이며, <code>structuredRows</code>가 daemon을 통해 Python까지 전달됩니다.
+        다만 row label과 option 분리가 완벽하지 않은 화면이 있을 수 있어, 실제 DM 화면에서 row 추출 품질을 계속 보정해야 합니다.
+      </p>
+      <div>
+        <span class="pill">browser-assisted</span>
+        <span class="pill">structuredRows</span>
+        <span class="pill">row_is_editable</span>
+        <span class="pill">post-save query check</span>
+        <span class="pill">SQLite removed</span>
+      </div>
+    </section>
+  </article>
+</main>
+</body>
+</html>

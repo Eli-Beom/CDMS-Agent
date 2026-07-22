@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notebook Query Check Removal Report 260527</title>
+  <style>
+    :root {
+      --bg:#f6f8fb; --paper:#fff; --ink:#17212f; --muted:#5f6b7a;
+      --line:#d8dee8; --soft:#eef3f8; --blue:#1d5fd6; --green:#007a5a; --amber:#9a6700; --red:#b42318;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; background:var(--bg); color:var(--ink);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
+      line-height:1.58;
+    }
+    main { max-width:1040px; margin:0 auto; padding:32px 24px 56px; }
+    article { background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:30px; }
+    header { border-bottom:1px solid var(--line); padding-bottom:16px; margin-bottom:22px; }
+    h1 { margin:0 0 8px; font-size:30px; line-height:1.2; letter-spacing:0; }
+    h2 { margin:26px 0 10px; font-size:19px; letter-spacing:0; }
+    p { margin:8px 0 12px; }
+    ul { margin:8px 0 14px; padding-left:22px; }
+    li { margin:4px 0; }
+    code {
+      padding:2px 5px; border-radius:5px; background:var(--soft);
+      font-family:"Cascadia Mono",Consolas,monospace; font-size:.92em;
+    }
+    pre {
+      margin:12px 0 16px; padding:14px 16px; overflow:auto; border-radius:8px;
+      background:#111827; color:#f9fafb; font-family:"Cascadia Mono",Consolas,monospace;
+      font-size:13px; line-height:1.5;
+    }
+    table { width:100%; border-collapse:collapse; border:1px solid var(--line); margin-top:10px; }
+    th,td { border-bottom:1px solid var(--line); padding:9px 11px; text-align:left; vertical-align:top; }
+    th { background:var(--soft); font-weight:700; }
+    .meta { display:flex; flex-wrap:wrap; gap:8px; color:var(--muted); font-size:13px; }
+    .summary { border-left:4px solid var(--blue); background:#f8fbff; padding:12px 14px; margin:16px 0; }
+    .ok { color:var(--green); font-weight:700; }
+    .warn { color:var(--amber); font-weight:700; }
+    .bad { color:var(--red); font-weight:700; }
+    @media print {
+      body { background:#fff; }
+      main { max-width:none; padding:0; }
+      article { border:0; border-radius:0; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <article>
+    <header>
+      <h1>Notebook Query Check Removal Report</h1>
+      <div class="meta">
+        <span>Date: 2026-05-27 (_260527)</span>
+        <span>Project: CDMS-Agent</span>
+        <span>Target: CDMS-Agent_test_v0.3.3.ipynb</span>
+      </div>
+    </header>
+
+    <section class="summary">
+      <p>
+        이번 수정의 목적은 notebook에서 부정확한 자동 판정 로직을 제거하고,
+        우선 <strong>브라우저에서 실제 입력이 되는지</strong>를 확인하는 작업 흐름으로 단순화하는 것입니다.
+      </p>
+    </section>
+
+    <section>
+      <h2>제거한 이유</h2>
+      <table>
+        <thead>
+          <tr><th>제거 항목</th><th>문제</th><th>판단</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>Expected Result: Query</code></td>
+            <td>현재 단계에서는 query 발생 여부를 신뢰성 있게 판정하지 못하는데, 셀에 기대 결과처럼 표시되어 혼선을 만들었습니다.</td>
+            <td>자동 판정 기준으로 쓰지 않으므로 제거.</td>
+          </tr>
+          <tr>
+            <td><code>has_query()</code></td>
+            <td>현재 snapshot 기반 query 판정이 실제 화면 피드백과 맞지 않을 수 있습니다.</td>
+            <td>엉뚱한 PASS/FAIL 근거가 되므로 제거.</td>
+          </tr>
+          <tr>
+            <td><code>check_result()</code></td>
+            <td>query/no-query 판정을 자동화하기에는 snapshot 수집 품질이 아직 부족합니다.</td>
+            <td>현재는 사람이 브라우저 피드백을 직접 확인.</td>
+          </tr>
+          <tr>
+            <td><code>CASE_CHECK</code></td>
+            <td>위 판정값에 의존하므로 실제 성공/실패를 대표하지 못했습니다.</td>
+            <td>잘못된 결과 요약을 방지하기 위해 제거.</td>
+          </tr>
+          <tr>
+            <td><code>생년월일 row_is_editable guard</code></td>
+            <td>inspect가 날짜 입력 row를 <code>editable=False</code>로 잡아 실제 입력 시도 자체를 건너뛰었습니다.</td>
+            <td><code>set_date</code>는 guard 없이 직접 시도하도록 변경.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>수정 내용</h2>
+      <ul>
+        <li><code>src/cdm_agent_client/crf/notebook.py</code>에서 post-save 자동 query probe 제거.</li>
+        <li>생성 notebook의 markdown/code에서 <code>Expected Result</code>, <code>expected_result</code> 출력 제거.</li>
+        <li><code>set_date</code> step은 <code>row_is_editable()</code> 없이 바로 실행하도록 변경.</li>
+        <li>radio 클릭 안정화를 위해 root extension의 <code>selectRadio</code> 로직을 더 관대한 구현으로 동기화.</li>
+        <li><code>CDMS-Agent_test_v0.3.3.ipynb</code> 재생성.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>실행 결과</h2>
+      <pre><code>Notebook: C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB\CDMS-Agent_test_v0.3.3.ipynb
+
+cells: 46
+Expected Result: 0
+expected_result: 0
+has_query: 0
+check_result: 0
+CASE_CHECK: 0
+row_is_editable(: 15
+SKIP not editable: 14
+
+pytest: 38 passed
+node --check extension/browser-runner-core.js: pass</code></pre>
+      <p>
+        첫 입력 cell은 이제 <code>생년월일</code>을 바로 <code>agent.set_date(...)</code>로 시도하고,
+        <code>성별</code>, <code>가임 여부</code>, <code>수유 여부</code>는 row 상태를 확인한 뒤 클릭합니다.
+      </p>
+    </section>
+
+    <section>
+      <h2>다음 액션</h2>
+      <ol>
+        <li>Chrome extension을 reload해서 수정된 <code>selectRadio</code> 로직을 실제 브라우저에 반영합니다.</li>
+        <li>notebook 연결 cell을 다시 실행해 <code>CLIENT_ID</code>와 현재 DM 페이지 binding을 갱신합니다.</li>
+        <li><code>생년월일</code> 단일 step만 먼저 실행해 date picker 또는 입력 commit이 되는지 확인합니다.</li>
+        <li><code>성별</code>, <code>가임 여부</code>를 각각 단독 실행해 radio 클릭이 실제 UI에 반영되는지 확인합니다.</li>
+        <li>입력이 성공하면 save는 사람이 화면 피드백을 확인한 뒤 수동 pause 상태에서 진행합니다.</li>
+        <li>query 자동 판정은 재도입하지 않고, 먼저 snapshot에서 query row/message를 안정적으로 분리 수집할 수 있는지 별도 작업으로 검토합니다.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>현재 결론</h2>
+      <p>
+        지금 단계의 목표는 PASS/FAIL 자동 판정이 아니라, <strong>브라우저에서 입력이 실제로 되는 자동화 셀</strong>을 만드는 것입니다.
+        query 판정은 snapshot 신뢰성이 확보될 때까지 notebook 자동 결과에서 제외하는 것이 맞습니다.
+      </p>
+    </section>
+  </article>
+</main>
+</body>
+</html>

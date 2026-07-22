@@ -15,6 +15,9 @@ class FieldDef:
     options: list[dict] = field(default_factory=list)
     visibility: Optional[list] = None
     availability: Optional[dict] = None
+    format: Any = None
+    calculate: Any = None
+    disability: Any = None
 
     @property
     def agent_action(self) -> str:
@@ -60,7 +63,7 @@ class SimResult:
 
 
 @dataclass
-class AgentStep:
+class Step:
     """One CDMSAgent method call generated for a validation scenario."""
 
     method: str
@@ -84,7 +87,7 @@ class AgentStep:
 
 
 @dataclass
-class ScenarioCheck:
+class Check:
     """A manual/interactive assertion to run after generated agent steps."""
 
     check_type: str
@@ -104,7 +107,7 @@ class ScenarioCheck:
 
 
 @dataclass
-class CRFScenario:
+class CRFCase:
     """Generated CRF validation scenario.
 
     The scenario is intentionally browser-client agnostic. It stores the
@@ -117,22 +120,28 @@ class CRFScenario:
     label: str = ""
     note: str = ""
     expect: str = ""
-    steps: list[AgentStep] = field(default_factory=list)
-    checks: list[ScenarioCheck] = field(default_factory=list)
+    steps: list[Step] = field(default_factory=list)
+    checks: list[Check] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     @property
     def runnable(self) -> bool:
         return not self.errors and bool(self.steps)
 
+    @property
+    def display_kind(self) -> str:
+        if self.expect in ("Query", "No Query"):
+            return f"Expected Result: {self.expect}"
+        return self.kind
+
     def as_dict(self) -> dict[str, Any]:
         return {
-            "kind": self.kind,
+            "kind": self.display_kind,
             "id": self.id,
             "page": self.page,
             "label": self.label,
             "note": self.note,
-            "expect": self.expect,
+            "expected_result": self.expect,
             "runnable": self.runnable,
             "steps": len(self.steps),
             "checks": len(self.checks),
@@ -151,3 +160,51 @@ class CRFScenario:
                 lines.append(f"snap = {agent_name}.inspect()")
                 lines.append(f"print({check.label!r}, 'hidden =', {check.label!r} not in snap.visible_rows)")
         return "\n".join(lines)
+
+    def run(self, agent) -> dict[str, Any]:
+        from .run import CRFRun
+
+        return CRFRun(agent).case(self)
+
+
+@dataclass
+class CRFPlan:
+    """A generated scenario list grouped by validation type.
+
+    ``CRFRunner`` creates this object. A notebook consumes it. The plan is still
+    data only; it does not call ``CDMSAgent``.
+    """
+
+    query_expected: list[CRFCase] = field(default_factory=list)
+    no_query_expected: list[CRFCase] = field(default_factory=list)
+    visibility: list[CRFCase] = field(default_factory=list)
+    availability: list[CRFCase] = field(default_factory=list)
+
+    @property
+    def all(self) -> list[CRFCase]:
+        return [
+            *self.query_expected,
+            *self.no_query_expected,
+            *self.visibility,
+            *self.availability,
+        ]
+
+    def as_dicts(self) -> list[dict[str, Any]]:
+        return [scenario.as_dict() for scenario in self.all]
+
+    def to_dataframe(self):
+        import pandas as pd
+
+        return pd.DataFrame(self.as_dicts())
+
+    def run(self, agent) -> list[dict[str, Any]]:
+        from .run import CRFRun
+
+        return CRFRun(agent).cases(self.all)
+
+
+# Backward-compatible aliases for notebooks created before the shorter names.
+AgentStep = Step
+ScenarioCheck = Check
+CRFScenario = CRFCase
+CRFScenarioPlan = CRFPlan

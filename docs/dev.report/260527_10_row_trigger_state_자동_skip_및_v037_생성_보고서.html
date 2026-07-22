@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>260527_10_row_trigger_state_자동_skip_및_v037_생성_보고서</title>
+  <style>
+    body { font-family: "Malgun Gothic", Arial, sans-serif; margin: 40px; color: #202124; line-height: 1.6; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #ddd; padding: 8px 10px; vertical-align: top; }
+    th { background: #f5f5f5; width: 220px; }
+    code { background: #f6f8fa; padding: 2px 5px; border-radius: 4px; }
+    .note { background: #fff8e1; border-left: 4px solid #f9ab00; padding: 10px 12px; }
+  </style>
+</head>
+<body>
+  <h1>row trigger state 자동 skip 및 v0.3.7 생성 보고서</h1>
+  <p><strong>작성일:</strong> 2026-05-27</p>
+
+  <h2>개발 의도</h2>
+  <p>
+    현재 단계의 목적은 DVS query 발생 여부를 자동 판정하는 것이 아니라, 연결된 브라우저의 현재 CRF 페이지에서
+    실제로 입력 가능한 항목을 최대한 입력하고 저장 전 피드백을 사람이 확인할 수 있게 하는 것이다.
+    따라서 Python notebook이 사전에 <code>row_editable</code>, <code>row_locked</code> 같은 helper로 분기하지 않고,
+    입력 명령은 그대로 보내며 실제 DOM 상태 판단은 extension runner가 담당하도록 정리했다.
+  </p>
+
+  <h2>적용 범위</h2>
+  <table>
+    <tr><th>Extension runner</th><td><code>extension/browser-runner-core.js</code></td></tr>
+    <tr><th>Daemon 배포본</th><td><code>daemon/public/cdm-agent/chrome-extension/browser-runner-core.js</code><br><code>daemon/public/cdm-agent/shared/browser-runner-core.js</code></td></tr>
+    <tr><th>Notebook generator</th><td><code>src/cdm_agent_client/crf/notebook.py</code></td></tr>
+    <tr><th>생성 notebook</th><td><code>C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB\CDMS-Agent_test_v0.3.7.ipynb</code></td></tr>
+  </table>
+
+  <h2>Runner 변경</h2>
+  <p>
+    입력 계열 동작(<code>setText</code>, <code>setDateViaCalendarPopup</code>, <code>selectRadio</code>,
+    <code>selectComboboxOption</code>) 실행 전에 target row 상태를 회사 trigger 용어 기준으로 판단하도록 했다.
+  </p>
+  <table>
+    <tr><th>row_visibility</th><td>row가 화면에 표시되지 않으면 <code>row_visibility_hidden</code>으로 <code>skipped</code> 처리한다.</td></tr>
+    <tr><th>row_availability</th><td>보이지만 현재 입력 가능한 control이 없으면 <code>row_availability_unavailable</code>로 <code>skipped</code> 처리한다.</td></tr>
+    <tr><th>row_disability</th><td><code>disabled</code>, <code>readOnly</code>, <code>aria-disabled</code> 등으로 잠겨 있으면 <code>row_disability_locked</code>로 <code>skipped</code> 처리한다.</td></tr>
+    <tr><th>row_query</th><td>현재 자동 판정 대상에서 제외했다.</td></tr>
+  </table>
+  <p>
+    <code>row not found</code>는 기존처럼 실패로 유지했다. 반대로 row가 보이고 입력 가능하다고 판단된 상태에서 option을 찾지 못하거나
+    click/input commit이 실패하면 진짜 실패로 남긴다.
+  </p>
+
+  <h2>Notebook 변경</h2>
+  <p>
+    생성 notebook에서 row 상태를 미리 판단하는 helper 함수와 query 자동 판정 문구를 제거했다.
+    셀은 <code>agent.set_date(...)</code>, <code>agent.select_radio(...)</code> 같은 직접 입력 명령만 보여준다.
+    <code>비가임 사유</code>처럼 Availability 조건상 입력 불가인 항목은 notebook이 아니라 runner가 <code>skipped</code>로 처리하고 다음 step으로 넘어간다.
+  </p>
+
+  <h2>검증 결과</h2>
+  <table>
+    <tr><th>JS 문법 검사</th><td><code>node --check extension/browser-runner-core.js</code> 통과</td></tr>
+    <tr><th>Service worker 문법 검사</th><td><code>node --check extension/service-worker.js</code> 통과</td></tr>
+    <tr><th>Daemon runner 문법 검사</th><td>chrome-extension/shared runner 모두 <code>node --check</code> 통과</td></tr>
+    <tr><th>Python compile</th><td><code>PYTHONPYCACHEPREFIX</code>를 작업 경로로 지정해 <code>compileall</code> 통과</td></tr>
+    <tr><th>Pytest</th><td><code>38 passed</code></td></tr>
+    <tr><th>Notebook 금지 문자열</th><td><code>row_text</code>, <code>row_editable</code>, <code>row_locked</code>, <code>has_query</code>, <code>check_result</code>, <code>CASE_CHECK</code>, <code>Expected Result</code>, query 자동 판정 문구 모두 0건</td></tr>
+  </table>
+
+  <h2>주의 사항</h2>
+  <p class="note">
+    extension/service-worker와 browser-runner-core가 바뀌었으므로 Chrome 확장 프로그램은 새로고침 또는 재로드가 필요하다.
+    재로드 전에는 브라우저에 주입된 이전 runner가 남아 있어 <code>row_availability_unavailable</code> skip 결과가 보이지 않을 수 있다.
+  </p>
+
+  <h2>다음 액션</h2>
+  <p>
+    확장 프로그램을 재로드한 뒤 v0.3.7 notebook의 DM 입력 셀을 한 줄씩 실행한다.
+    특히 <code>가임 여부=예</code> 이후 <code>비가임 사유</code>가 입력 불가 상태일 때 cell이 멈추지 않고
+    runner result의 inputs에 <code>outcome="skipped"</code>, <code>reason="row_availability_unavailable"</code>
+    또는 <code>row_disability_locked</code>가 남는지 확인한다.
+  </p>
+</body>
+</html>

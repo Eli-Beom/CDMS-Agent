@@ -1,0 +1,11 @@
+{
+  "name": "cdms-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CDMS Agent — daemon, extension, Python client",
+  "scripts": {
+    "daemon": "npm run dev --prefix daemon",
+    "daemon:build": "npm run build --prefix daemon",
+    "daemon:start": "npm run start --prefix daemon"
+  }
+}

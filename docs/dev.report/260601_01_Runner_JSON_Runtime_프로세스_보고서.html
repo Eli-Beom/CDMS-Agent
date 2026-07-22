@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>Runner JSON Runtime 프로세스 보고서</title>
+  <style>
+    body { font-family: "Segoe UI", "Malgun Gothic", sans-serif; margin: 40px; color: #1f2937; line-height: 1.65; }
+    h1 { font-size: 26px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #d1d5db; padding-bottom: 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #d1d5db; padding: 8px 10px; vertical-align: top; }
+    th { background: #f3f4f6; }
+    code { background: #f3f4f6; padding: 2px 4px; border-radius: 3px; }
+    pre { background: #f9fafb; border: 1px solid #e5e7eb; padding: 12px; overflow-x: auto; }
+    .meta { color: #6b7280; }
+  </style>
+</head>
+<body>
+  <h1>Runner JSON Runtime 프로세스 보고서</h1>
+  <p class="meta">작성일: 2026-06-01 / 위치: CDMS-Agent docs/dev.report</p>
+
+  <h2>목적</h2>
+  <p>
+    CDMS-Agent의 Rule Discovery 흐름에서 <code>CRFRunner</code>, candidate JSON,
+    <code>rule_discovery_runtime.py</code>, CSV, <code>pytest</code>가 각각 어떤 역할을 하는지
+    구분하기 위해 작성하였다.
+  </p>
+
+  <h2>구성 요소</h2>
+  <table>
+    <thead>
+      <tr><th>구성 요소</th><th>역할</th><th>저장 위치/예시</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>CRFRunner</code></td>
+        <td>CRF 코드의 <code>page_*.ts</code>, <code>trigger_*.ts</code>를 읽고 trigger/case 후보를 만드는 Python 로직</td>
+        <td><code>src/cdm_agent_client/crf/runner.py</code></td>
+      </tr>
+      <tr>
+        <td>candidate JSON</td>
+        <td><code>CRFRunner</code>와 browser inspect 결과를 조합해 만든 이번 페이지의 실행 후보 데이터</td>
+        <td><code>CDMS-Agent_rule_discovery_candidates_DM_v0.1.json</code></td>
+      </tr>
+      <tr>
+        <td><code>rule_discovery_runtime.py</code></td>
+        <td>candidate JSON을 읽어서 하나씩 실행하고, Save 후 inspect로 Query 관찰 결과를 누적하는 실행 로직</td>
+        <td><code>src/cdm_agent_client/crf/rule_discovery_runtime.py</code></td>
+      </tr>
+      <tr>
+        <td>Notebook cell</td>
+        <td>runtime 함수를 호출하는 작업 공간. 사용자가 셀을 실행하며 브라우저 피드백을 확인한다.</td>
+        <td><code>CDMS-Agent_test_v*.ipynb</code></td>
+      </tr>
+      <tr>
+        <td>CSV</td>
+        <td>노트북 실행 결과를 커널 밖에 보존하는 Rule Discovery 결과 파일</td>
+        <td><code>CDMS-Agent_rule_discovery_DM_v0.1.csv</code></td>
+      </tr>
+      <tr>
+        <td><code>pytest</code></td>
+        <td>Python 패키지 내부 로직이 깨지지 않았는지 확인하는 테스트 실행 도구</td>
+        <td><code>tests/</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>프로세스</h2>
+  <pre><code>CRF code
+  page_*.ts
+  trigger_*.ts
+        ↓
+CRFRunner
+  - load_spec()
+  - trigger 추출
+  - query case 생성
+        ↓
+browser inspect 결과와 매칭
+        ↓
+candidate JSON 생성
+  - DVS ID
+  - item_id
+  - item_label
+  - Specification
+  - Expected Result
+  - steps
+        ↓
+notebook
+  load_candidates(...)
+  run_rule_discovery_loop(...)
+        ↓
+browser 실행 + Save + inspect
+        ↓
+rule_discovery_result
+        ↓
+CSV export</code></pre>
+
+  <h2>candidate JSON의 의미</h2>
+  <p>
+    candidate JSON은 runner 자체가 아니라, runner가 만든 실행 후보 데이터다.
+    노트북 셀에 긴 후보 목록을 직접 넣지 않고 별도 파일로 분리해 가독성과 재사용성을 높인다.
+  </p>
+  <pre><code>{
+  "DVS ID": "D_DM_1_2",
+  "item_id": "BRTHDAT",
+  "item_label": "생년월일",
+  "rule_type": "range_query",
+  "rule_source": "CRF+Browser",
+  "Specification": "AGE&lt;22",
+  "Expected Result": "query_expected",
+  "steps": [
+    {
+      "method": "set_date",
+      "args": ["생년월일", "2005-01-01"],
+      "kwargs": {"page_id": "DM", "visit_id": "V1"}
+    }
+  ]
+}</code></pre>
+
+  <h2>CSV의 의미</h2>
+  <p>
+    CSV는 candidate가 아니라 실행 결과다. 노트북의 <code>rule_discovery_result</code>는 커널이 꺼지면 사라질 수 있으므로,
+    실행 후 결과를 파일로 남긴다.
+  </p>
+  <p>
+    주요 열은 <code>DVS ID</code>, <code>Specification</code>, <code>Test Script</code>,
+    <code>Expected Result</code>, <code>observed_query_count</code>,
+    <code>observed_query_messages</code>, <code>target_observed_query_messages</code>,
+    <code>Result</code>, <code>discovery_category</code>, <code>review_decision</code>이다.
+  </p>
+
+  <h2>pytest의 의미</h2>
+  <p>
+    <code>pytest</code>는 실제 EDC 브라우저 클릭 검증이 아니라 Python 패키지 내부 로직 검증이다.
+    예를 들어 trigger 중복 탐지, override JSON load/save, discovery result 판정,
+    step error의 <code>blocked</code> 처리 같은 로직이 깨지지 않았는지 확인한다.
+  </p>
+
+  <h2>정리</h2>
+  <table>
+    <thead>
+      <tr><th>질문</th><th>답</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>JSON이 runner인가?</td><td>아니다. JSON은 runner가 만든 실행 후보 데이터다.</td></tr>
+      <tr><td>runner는 무엇인가?</td><td>CRF 코드를 읽고 trigger/case 후보를 만드는 로직이다.</td></tr>
+      <tr><td>runtime은 무엇인가?</td><td>candidate JSON을 읽어 브라우저에서 실행하고 결과를 누적하는 로직이다.</td></tr>
+      <tr><td>CSV는 왜 만드는가?</td><td>노트북 실행 결과를 커널 밖에 보존하고 후속 검토/승인에 사용하기 위해 만든다.</td></tr>
+      <tr><td>pytest는 무엇인가?</td><td>Python 코드 내부 로직이 깨지지 않았는지 확인하는 테스트 도구다.</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>

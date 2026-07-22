@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>Rule Discovery 결과판정 로직 수정 보고서</title>
+  <style>
+    body { font-family: "Segoe UI", "Malgun Gothic", sans-serif; margin: 40px; color: #1f2937; line-height: 1.6; }
+    h1 { font-size: 26px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #d1d5db; padding-bottom: 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #d1d5db; padding: 8px 10px; vertical-align: top; }
+    th { background: #f3f4f6; }
+    code { background: #f3f4f6; padding: 2px 4px; border-radius: 3px; }
+    .meta { color: #6b7280; }
+  </style>
+</head>
+<body>
+  <h1>Rule Discovery 결과판정 로직 수정 보고서</h1>
+  <p class="meta">작성일: 2026-05-29 / 대상: CDMS-Agent browser-assisted query discovery</p>
+
+  <h2>문제 정의</h2>
+  <p>
+    Discovery loop에서 입력 step이 실패했는데도 <code>observed_query_count = 0</code>이라는 이유만으로
+    <code>Result = no_query_observed</code>가 기록되는 문제가 있었다.
+    또한 <code>query_observed</code>는 화면에 Query가 하나라도 있는지 기준이어서,
+    의도한 DVS rule의 Query인지와 다른 row의 누락 Query인지가 구분되지 않았다.
+  </p>
+
+  <h2>수정 내용</h2>
+  <table>
+    <thead>
+      <tr><th>항목</th><th>수정 전</th><th>수정 후</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>step error 처리</td>
+        <td>입력 실패 후 query가 없으면 <code>no_query_observed</code></td>
+        <td>입력 step 중 하나라도 실패하면 <code>blocked</code></td>
+      </tr>
+      <tr>
+        <td>예상-관측 관계</td>
+        <td><code>Expected Result</code>와 <code>Result</code>를 사용자가 직접 비교</td>
+        <td><code>discovery_category</code>로 관계를 명시</td>
+      </tr>
+      <tr>
+        <td>대상 Query 식별</td>
+        <td>전체 Query 메시지만 출력</td>
+        <td><code>target_observed_query_count</code>, <code>target_observed_query_messages</code> 추가</td>
+      </tr>
+      <tr>
+        <td>출력 표</td>
+        <td><code>query_observed</code>, <code>no_query_observed</code>, <code>manual_review_or_unknown</code></td>
+        <td>예상 일치/불일치/blocked 표를 추가 출력</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>새 판정 기준</h2>
+  <table>
+    <thead>
+      <tr><th>조건</th><th>Result</th><th>discovery_category</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Save 실패 또는 입력 step 실패</td><td><code>blocked</code></td><td><code>blocked_or_skipped</code></td></tr>
+      <tr><td>runner skipped 발생</td><td><code>skipped</code></td><td><code>blocked_or_skipped</code></td></tr>
+      <tr><td>query 예상, 실제 query 관측</td><td><code>query_observed</code></td><td><code>expected_and_observed</code></td></tr>
+      <tr><td>query 예상, 실제 query 미관측</td><td><code>no_query_observed</code></td><td><code>expected_but_not_observed</code></td></tr>
+      <tr><td>no query 예상, 실제 query 관측</td><td><code>query_observed</code></td><td><code>not_expected_but_observed</code></td></tr>
+      <tr><td>no query 예상, 실제 query 미관측</td><td><code>no_query_observed</code></td><td><code>not_expected_and_not_observed</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>주의점</h2>
+  <p>
+    <code>observed_query_count</code>는 현재 화면 전체에서 관측된 Query 수다.
+    따라서 다른 필수 입력 누락 Query가 섞일 수 있다.
+    의도한 DVS rule과 직접 관련된 메시지는 <code>target_observed_query_messages</code>를 우선 확인한다.
+  </p>
+
+  <h2>변경 파일</h2>
+  <ul>
+    <li><code>src/cdm_agent_client/crf/rule_discovery_runtime.py</code></li>
+    <li><code>tests/test_rule_discovery_runtime.py</code></li>
+  </ul>
+</body>
+</html>

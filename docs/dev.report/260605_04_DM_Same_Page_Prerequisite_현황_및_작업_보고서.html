@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>DM Same-page Prerequisite 현황 및 작업 보고서</title>
+  <style>
+    body { font-family: "Segoe UI", "Malgun Gothic", Arial, sans-serif; line-height: 1.55; margin: 32px; color: #20242a; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #d7dce2; padding-bottom: 5px; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 13px; }
+    th, td { border: 1px solid #d7dce2; padding: 7px 9px; vertical-align: top; }
+    th { background: #f3f5f7; text-align: left; }
+    code { background: #f2f4f6; padding: 1px 4px; border-radius: 3px; }
+    pre { background: #f7f8fa; border: 1px solid #d7dce2; padding: 12px; overflow-x: auto; }
+    .note { background: #fff8e6; border-left: 4px solid #d89b00; padding: 10px 12px; margin: 12px 0; }
+    .ok { background: #eef8f1; border-left: 4px solid #2e8b57; padding: 10px 12px; margin: 12px 0; }
+    .risk { background: #fff0f0; border-left: 4px solid #c73737; padding: 10px 12px; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>DM Same-page Prerequisite 현황 및 작업 보고서</h1>
+  <p><strong>작성일:</strong> 2026-06-05</p>
+  <p><strong>대상:</strong> <code>DM / 인구학적 조사</code></p>
+
+  <h2>1. 현재 판단</h2>
+  <div class="risk">
+    직전 v0.6.9에서는 <code>setup_steps</code>를 main query loop 안에서 자동 실행하도록 넣었고,
+    이 때문에 정확도가 더 떨어진 것으로 판단한다. prerequisite 입력은 query 발생 조건 자체가 아니라
+    target row를 활성화하기 위한 선행 상태 설정이므로, query 검증 루프와 섞으면 입력 상태와 저장 타이밍이 불안정해진다.
+  </div>
+  <p>
+    따라서 v0.6.10부터는 prerequisite을 candidate metadata와 노트북의 별도 표시 표로만 제공하고,
+    기본 query loop에서는 자동 실행하지 않도록 변경했다.
+  </p>
+
+  <h2>2. 확인된 원인</h2>
+  <table>
+    <thead>
+      <tr><th>문제</th><th>영향</th><th>조치</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>같은 페이지 내 선행조건 필요</td>
+        <td><code>BMLOC</code>, <code>BSLOC</code> 같은 target row가 비활성 상태이면 입력 및 저장이 실패할 수 있음</td>
+        <td>candidate에 <code>setup_steps</code>, <code>prerequisite_item_ids</code> metadata 추가</td>
+      </tr>
+      <tr>
+        <td>main query loop에서 setup 자동 실행</td>
+        <td>query 검증 전 상태가 바뀌고, row 선택 실패 또는 저장 실패가 더 잘 발생할 수 있음</td>
+        <td>v0.6.10에서 기본값 <code>EXECUTE_SETUP_STEPS = False</code>로 변경</td>
+      </tr>
+      <tr>
+        <td>반복 label row</td>
+        <td><code>BMLOC</code>와 <code>BSLOC</code>가 화면상 모두 <code>부위</code>로 보여 row label만으로는 정확히 구분하기 어려움</td>
+        <td>후속 작업으로 section/item id 기반 row resolver 필요</td>
+      </tr>
+      <tr>
+        <td>query 미감지</td>
+        <td>실제 화면에는 query가 떠도 결과가 <code>observed_query_count = 0</code>이 될 수 있음</td>
+        <td>extension wait-query 방식은 추가했으나, 개별 candidate 입력 성공 여부와 저장 이후 DOM 변화를 더 추적해야 함</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. DM prerequisite 예시</h2>
+  <table>
+    <thead>
+      <tr><th>Target item</th><th>Target label</th><th>Prerequisite</th><th>Control label / value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>PGNREAS</code></td><td>비가임 사유</td><td><code>PGYN = 2</code></td><td>가임 여부 = 아니요</td></tr>
+      <tr><td><code>BMLOC</code></td><td>부위</td><td><code>BMYN = 1</code></td><td>유방암 병력이 있습니까? = 예</td></tr>
+      <tr><td><code>BHTB</code></td><td>BHTB</td><td><code>BMYN = 1</code></td><td>유방암 병력이 있습니까? = 예</td></tr>
+      <tr><td><code>BSLOC</code></td><td>부위</td><td><code>BSYN = 1</code></td><td>유방암 절제 수술력이 있습니까? = 예</td></tr>
+      <tr><td><code>BTTB</code></td><td>BTTB</td><td><code>BSYN = 1</code></td><td>유방암 절제 수술력이 있습니까? = 예</td></tr>
+    </tbody>
+  </table>
+
+  <h2>4. 적용된 변경</h2>
+  <table>
+    <thead>
+      <tr><th>파일</th><th>변경 내용</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>candidate_prerequisites.py</code></td>
+        <td>공통 helper <code>enrich_same_page_prerequisites()</code> 추가. DM 전용이 아니라 모든 page candidate 생성 경로에서 사용 가능.</td>
+      </tr>
+      <tr>
+        <td><code>rule_discovery.py</code></td>
+        <td>browser/static candidate 생성 시 same-page prerequisite metadata를 enrich하도록 연결.</td>
+      </tr>
+      <tr>
+        <td><code>generate_screening_rule_discovery.py</code></td>
+        <td>screening page candidate 생성 시 공통 prerequisite helper 사용. notebook 버전 <code>v0.6.10</code> 생성.</td>
+      </tr>
+      <tr>
+        <td><code>rule_discovery_runtime.py</code></td>
+        <td><code>execute_setup_steps</code> 옵션 추가. 기본값은 <code>False</code>이며, setup은 main query loop에서 자동 실행하지 않음.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>5. v0.6.10 노트북 동작</h2>
+  <pre><code>EXECUTE_SETUP_STEPS = False
+
+rule_discovery_result = run_rule_discovery_loop(
+    agent,
+    DISCOVERY_CANDIDATES,
+    output_csv_path=OUTPUT_CSV_PATH,
+    execute_setup_steps=EXECUTE_SETUP_STEPS,
+)</code></pre>
+  <p>
+    노트북은 loop 실행 전에 prerequisite 후보 표를 표시한다. 사용자는 이 표에서 선행조건이 필요한 candidate를 먼저 확인하고,
+    필요하면 별도 셀 또는 수동 상태 설정 후 query loop를 실행하는 구조로 운용한다.
+  </p>
+
+  <h2>6. DM candidate 재생성 결과</h2>
+  <table>
+    <thead>
+      <tr><th>항목</th><th>결과</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>생성 notebook</td><td><code>CDMS-Agent_test_DM_v0.6.10.ipynb</code></td></tr>
+      <tr><td>candidate JSON</td><td><code>CDMS-Agent_rule_discovery_candidates_DM_v0.2.json</code></td></tr>
+      <tr><td>DM candidate 수</td><td>13</td></tr>
+      <tr><td>DM query candidate 수</td><td>8</td></tr>
+      <tr><td>DM availability candidate 수</td><td>5</td></tr>
+      <tr><td><code>D_DM_14_1</code></td><td><code>setup_steps_count = 2</code>, <code>prerequisite_item_ids = BSYN, BMYN</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>7. 남은 리스크</h2>
+  <div class="risk">
+    이번 수정은 v0.6.9에서 정확도를 떨어뜨린 main loop 자동 setup 실행을 되돌리고 분리한 것이다.
+    그러나 <code>D_DM_5</code>, <code>D_DM_7_1</code>, <code>D_DM_14_1</code>의 실제 query 감지 실패는 아직 완전히 해결된 것이 아니다.
+  </div>
+  <ul>
+    <li><code>부위</code>처럼 label이 중복되는 row는 section/item id 기반 selector가 필요하다.</li>
+    <li>query candidate별 입력 step이 실제로 화면에 반영됐는지 step outcome을 기록해야 한다.</li>
+    <li>저장 후 query DOM이 나타나는 타이밍을 extension wait-query와 snapshot 양쪽에서 비교해야 한다.</li>
+    <li>availability 검증은 query 검증 loop와 분리된 별도 loop로 운영해야 한다.</li>
+  </ul>
+
+  <h2>8. 검증 결과</h2>
+  <table>
+    <thead>
+      <tr><th>검증</th><th>결과</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>python -m pytest</code></td><td><code>61 passed</code></td></tr>
+      <tr><td>DM notebook 확인</td><td><code>EXECUTE_SETUP_STEPS = False</code>, prerequisite display cell, <code>execute_setup_steps=EXECUTE_SETUP_STEPS</code> 확인</td></tr>
+      <tr><td>DM candidate 확인</td><td><code>D_DM_14_1</code> prerequisite metadata 유지 확인</td></tr>
+    </tbody>
+  </table>
+
+  <h2>9. 다음 작업</h2>
+  <ol>
+    <li>DM에서 query candidate와 availability candidate를 완전히 분리한 실행 셀을 만든다.</li>
+    <li><code>D_DM_5</code> 하나를 기준으로 입력 성공, 저장 성공, query DOM 감지 결과를 모두 기록하는 debug loop를 만든다.</li>
+    <li>반복 label row 문제 해결을 위해 CRF item id 또는 section context 기반 row resolver를 추가한다.</li>
+    <li>그 다음 <code>D_DM_7_1</code>, <code>D_DM_14_1</code> 순서로 확장한다.</li>
+  </ol>
+</body>
+</html>

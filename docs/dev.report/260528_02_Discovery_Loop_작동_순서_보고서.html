@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>260528_02_Discovery Loop 작동 순서 보고서</title>
+  <style>
+    body { font-family: "Malgun Gothic", Arial, sans-serif; margin: 40px; color: #202124; line-height: 1.65; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #ddd; padding: 8px 10px; vertical-align: top; }
+    th { background: #f5f5f5; width: 220px; }
+    code { background: #f6f8fa; padding: 2px 5px; border-radius: 4px; }
+    .note { background: #fff8e1; border-left: 4px solid #f9ab00; padding: 10px 12px; }
+    .flow { background: #eef7ff; border-left: 4px solid #1a73e8; padding: 10px 12px; }
+  </style>
+</head>
+<body>
+  <h1>Discovery Loop 작동 순서 보고서</h1>
+  <p><strong>작성일:</strong> 2026-05-28</p>
+  <p><strong>대상:</strong> <code>browser-assisted-query-discovery</code> / <code>CDMS-Agent_test_v0.4.6.ipynb</code></p>
+
+  <h2>목적</h2>
+  <p>
+    Discovery loop의 목적은 CRF rule만으로 query 발생 여부를 단정하는 것이 아니라,
+    현재 브라우저 페이지에서 입력 후보를 실제로 실행하고 저장한 뒤,
+    저장 후 화면 inspect 결과를 통해 query 발생 여부를 관찰하는 것이다.
+  </p>
+  <p>
+    이 결과는 pass/fail 판정이 아니라 DVS 문서업무 대체를 위한
+    <code>Rule Discovery</code> 산출물의 관찰 데이터로 기록된다.
+  </p>
+
+  <h2>전체 흐름</h2>
+  <div class="flow">
+    candidate 생성 → 사용자 확인 → 입력 step 실행 → Save 전 사용자 확인 → Save 실행 →
+    대기 → inspect 실행 → query row 수집 → Rule Discovery 결과 행 생성 → 표 출력 및 CSV export
+  </div>
+
+  <h2>상세 작동 순서</h2>
+  <table>
+    <tr>
+      <th>1. 현재 페이지 context 확인</th>
+      <td>
+        notebook 생성 시 <code>agent.inspect()</code>로 현재 브라우저 페이지의
+        <code>page_id</code>, <code>page_label</code>, <code>pathname</code>,
+        <code>visible_rows</code>, <code>structured_rows</code>를 가져온다.
+      </td>
+    </tr>
+    <tr>
+      <th>2. candidate 생성</th>
+      <td>
+        <code>CRFRunner.query_cases()</code>에서 현재 페이지에 해당하는 query/no-query 후보를 가져오고,
+        browser inspect에서 확인된 row와 매칭 가능한 입력 step만 candidate로 구성한다.
+        매칭 실패 시에는 현재 화면의 기본 입력값을 사용하는 fallback candidate를 만든다.
+      </td>
+    </tr>
+    <tr>
+      <th>3. Rule Discovery 메타데이터 부여</th>
+      <td>
+        각 candidate에는 <code>DVS ID</code>, <code>item_id</code>, <code>item_label</code>,
+        <code>rule_type</code>, <code>rule_source</code>, <code>Specification</code>,
+        <code>Expected Result</code>, <code>steps</code>가 포함된다.
+      </td>
+    </tr>
+    <tr>
+      <th>4. candidate 실행 전 정지</th>
+      <td>
+        loop는 각 candidate 실행 전에 <code>input(...)</code>으로 멈춘다.
+        사용자는 현재 화면 상태를 확인한 뒤 Enter를 눌러 해당 후보 실행을 시작한다.
+      </td>
+    </tr>
+    <tr>
+      <th>5. 입력 step 실행</th>
+      <td>
+        candidate의 <code>steps</code>를 순서대로 실행한다.
+        예: <code>agent.set_date(...)</code>, <code>agent.select_radio(...)</code>,
+        <code>agent.set_text(...)</code>. 각 step 결과는 내부적으로 성공/실패/skip 상태를 수집한다.
+      </td>
+    </tr>
+    <tr>
+      <th>6. Save 전 정지</th>
+      <td>
+        모든 입력 step 실행 후 <code>input('Press Enter to Save and observe query...')</code>에서 다시 멈춘다.
+        사용자는 저장 전 화면 피드백과 입력값을 육안으로 확인할 수 있다.
+      </td>
+    </tr>
+    <tr>
+      <th>7. Save 실행</th>
+      <td>
+        Enter 입력 후 <code>agent.click_save(page_id=DISCOVERY_PAGE_ID, visit_id=DISCOVERY_VISIT_ID)</code>를 실행한다.
+        Save raw result는 출력하지 않는다. 저장 중 오류가 발생하면 <code>save_error</code>로만 기록한다.
+      </td>
+    </tr>
+    <tr>
+      <th>8. 저장 후 대기</th>
+      <td>
+        <code>POST_SAVE_DELAY_SECONDS</code>만큼 대기한다.
+        이는 저장 직후 query row가 화면에 반영되는 시간을 확보하기 위한 것이다.
+      </td>
+    </tr>
+    <tr>
+      <th>9. 저장 후 inspect</th>
+      <td>
+        저장 후 <code>agent.inspect()</code>를 다시 실행한다.
+        이 시점의 inspect 결과가 실제 query 발생 여부 판단의 기준이 된다.
+      </td>
+    </tr>
+    <tr>
+      <th>10. query row 수집</th>
+      <td>
+        query는 다음 source에서 수집한다.
+        <br><code>snapshot.query_rows</code>
+        <br><code>snapshot.visible_rows</code> 중 <code>Query [</code> 포함 row
+        <br><code>snapshot.invalid_row_labels</code>
+      </td>
+    </tr>
+    <tr>
+      <th>11. Result 산출</th>
+      <td>
+        <code>observed_query_count</code>가 1 이상이면 <code>Result = query_observed</code>,
+        0이면 <code>Result = no_query_observed</code>로 기록한다.
+        Save/click 문제가 있으면 <code>blocked</code>, runner skip이 있으면 <code>skipped</code>로 기록한다.
+      </td>
+    </tr>
+    <tr>
+      <th>12. Rule Discovery 행 생성</th>
+      <td>
+        각 candidate 실행 결과는 <code>DISCOVERY_RESULTS</code>에 누적되고,
+        최종적으로 <code>rule_discovery_result</code> DataFrame으로 변환된다.
+      </td>
+    </tr>
+    <tr>
+      <th>13. 결과 표 분류</th>
+      <td>
+        loop 종료 후 다음 표를 출력한다.
+        <br><code>전체 rule_discovery_result</code>
+        <br><code>query_observed</code>
+        <br><code>no_query_observed</code>
+        <br><code>manual_review_or_unknown</code>
+        <br><code>review_queue</code>
+      </td>
+    </tr>
+    <tr>
+      <th>14. CSV export</th>
+      <td>
+        결과가 비어 있지 않으면 현재 페이지 기준 CSV를 저장한다.
+        예: <code>CDMS-Agent_rule_discovery_DM_v0.1.csv</code>
+      </td>
+    </tr>
+  </table>
+
+  <h2>결과 열 구조</h2>
+  <table>
+    <tr><th>DVS ID</th><td>자동 생성된 검증 규칙 후보 식별자.</td></tr>
+    <tr><th>page_id / page_label / visit_id</th><td>현재 실행 context.</td></tr>
+    <tr><th>item_id / item_label</th><td>규칙 후보와 연결된 CRF item 또는 화면 row.</td></tr>
+    <tr><th>rule_type</th><td>규칙 유형. 예: <code>query</code>, <code>range_query</code>, <code>option_query</code>, <code>unknown</code>.</td></tr>
+    <tr><th>rule_source</th><td>규칙 후보 생성 근거. 예: <code>CRF</code>, <code>Browser</code>, <code>CRF+Browser</code>, <code>Unknown</code>.</td></tr>
+    <tr><th>Specification</th><td>CRF trigger/parser 기반 조건식 또는 규칙 설명 초안.</td></tr>
+    <tr><th>Test Script</th><td>실제 loop에서 실행한 agent 입력 step.</td></tr>
+    <tr><th>Expected Result</th><td>실행 전 시스템 예상값. 예: <code>query_expected</code>, <code>no_query_expected</code>, <code>manual_review</code>.</td></tr>
+    <tr><th>observed_query_count</th><td>저장 후 inspect에서 관찰된 query 개수.</td></tr>
+    <tr><th>observed_query_messages</th><td>저장 후 inspect에서 관찰된 query 문구.</td></tr>
+    <tr><th>Result</th><td>실제 관찰 결과. 예: <code>query_observed</code>, <code>no_query_observed</code>, <code>skipped</code>, <code>blocked</code>.</td></tr>
+    <tr><th>review_decision</th><td>사람이 나중에 승인/보류/수정 여부를 채우는 열. 자동 생성 시 비워둔다.</td></tr>
+  </table>
+
+  <h2>중요 기준</h2>
+  <div class="note">
+    이 loop는 query 발생 여부를 자동으로 검증하는 assert가 아니다.
+    실제 Save 후 inspect로 관찰한 결과를 기록하는 discovery/observation 흐름이다.
+    따라서 <code>Result</code>는 pass/fail이 아니라 현재 화면에서 관찰된 상태를 의미한다.
+  </div>
+
+  <h2>제외한 항목</h2>
+  <ul>
+    <li><code>Save result</code> raw 출력은 하지 않는다.</li>
+    <li><code>check_result</code>, <code>CASE_CHECK</code>, <code>has_query</code> 기반 검증은 사용하지 않는다.</li>
+    <li><code>Comment</code>, <code>confidence</code>, <code>interpretation</code>, <code>review_comment</code>는 생성하지 않는다.</li>
+  </ul>
+
+  <h2>요약</h2>
+  <p>
+    v0.4.6 discovery loop는 candidate별 입력을 실제 브라우저에서 실행하고,
+    저장 후 inspect를 통해 query row를 수집한다.
+    수집 결과는 DVS 문서업무 대체용 Rule Discovery 산출물로 정리되며,
+    사람의 역할은 문서 작성이 아니라 결과 확인과 <code>review_decision</code> 입력으로 축소된다.
+  </p>
+</body>
+</html>

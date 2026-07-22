@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notebook Generation / Query Check 260527</title>
+  <style>
+    body{margin:0;background:#f6f8fb;color:#17212f;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;line-height:1.58}
+    main{max-width:1020px;margin:0 auto;padding:32px 24px 56px}.sheet{background:#fff;border:1px solid #d8dee8;border-radius:8px;padding:28px}
+    h1{margin:0 0 8px;font-size:29px;letter-spacing:0}h2{margin:26px 0 10px;font-size:19px;letter-spacing:0}
+    p{margin:8px 0 12px}ul{padding-left:22px}li{margin:4px 0}code{background:#eef3f8;padding:2px 5px;border-radius:5px}
+    pre{background:#111827;color:#f9fafb;padding:14px 16px;border-radius:8px;overflow:auto}
+    table{width:100%;border-collapse:collapse;border:1px solid #d8dee8;margin-top:10px}th,td{border-bottom:1px solid #d8dee8;padding:9px 11px;text-align:left;vertical-align:top}th{background:#eef3f8}
+    .meta{color:#5f6b7a;font-size:13px}.summary{border-left:4px solid #1d5fd6;background:#f8fbff;padding:12px 14px;margin:16px 0}
+  </style>
+</head>
+<body><main><article class="sheet">
+  <h1>Notebook Generation / Query Check</h1>
+  <div class="meta">Date: 2026-05-27 (_260527) · Work Unit: generated validation notebook</div>
+  <section class="summary">
+    <p>목적은 CRF query 후보를 Jupyter cell로 만들되, 사람이 브라우저 피드백을 보면서 한 단계씩 실행할 수 있게 하는 것입니다.</p>
+  </section>
+  <section>
+    <h2>개발 의도</h2>
+    <ul>
+      <li>CDMS query는 저장 후 알 수 있으므로, 입력과 query 확인을 분리합니다.</li>
+      <li>저장이 너무 빠르면 피드백을 못 보므로 <code>PAUSE_BEFORE_SAVE</code>, <code>POST_SAVE_DELAY_SECONDS</code>를 둡니다.</li>
+      <li>현재 페이지가 지정 page와 다르면 빈 notebook을 만들지 않고, 후보를 유지한 뒤 실행 시 row guard로 보호합니다.</li>
+    </ul>
+  </section>
+  <section>
+    <h2>생성 셀 패턴</h2>
+    <pre><code>if row_is_editable("비가임 사유"):
+    agent.select_radio("비가임 사유", "기타", page_id="DM", visit_id="V1")
+else:
+    print("SKIP not editable:", "비가임 사유")
+
+if PAUSE_BEFORE_SAVE:
+    input("Review browser feedback, then press Enter to Save...")
+agent.click_save(page_id="DM", visit_id="V1")
+time.sleep(POST_SAVE_DELAY_SECONDS)
+
+snap = agent.inspect()
+actual = agent.check_result("Query")</code></pre>
+  </section>
+  <section>
+    <h2>결과물</h2>
+    <table>
+      <tr><th>파일</th><th>내용</th></tr>
+      <tr><td><code>C:\Users\SunbeomGwon\maven-crfs\src\crfs\20260325_PRACTICE_GSB\CDMS-Agent_test_v0.3.2.ipynb</code></td><td>browser-assisted Query 검증 notebook 재생성.</td></tr>
+      <tr><td><code>src/cdm_agent_client/crf/notebook.py</code></td><td><code>row_is_editable</code> helper와 step guard, save 후 query probe 반영.</td></tr>
+    </table>
+  </section>
+  <section>
+    <h2>검증 결과</h2>
+    <ul>
+      <li>재생성 notebook: 46 cells</li>
+      <li><code>row_is_editable</code>, <code>SKIP not editable</code>, <code>CASE_CHECK</code> 포함 확인</li>
+      <li>pytest: <code>38 passed</code></li>
+    </ul>
+  </section>
+</article></main></body>
+</html>

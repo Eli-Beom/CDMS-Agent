@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>260528_03_Rule Discovery 매칭 우선순위 및 코드배치 보고서</title>
+  <style>
+    body { font-family: "Malgun Gothic", Arial, sans-serif; margin: 40px; color: #202124; line-height: 1.65; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+    h3 { font-size: 15px; margin-top: 20px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #ddd; padding: 8px 10px; vertical-align: top; }
+    th { background: #f5f5f5; width: 230px; }
+    code { background: #f6f8fa; padding: 2px 5px; border-radius: 4px; }
+    .note { background: #fff8e1; border-left: 4px solid #f9ab00; padding: 10px 12px; }
+    .decision { background: #eef7ff; border-left: 4px solid #1a73e8; padding: 10px 12px; }
+  </style>
+</head>
+<body>
+  <h1>Rule Discovery 매칭 우선순위 및 코드배치 보고서</h1>
+  <p><strong>작성일:</strong> 2026-05-28</p>
+  <p><strong>대상:</strong> CDMS-Agent browser-assisted query discovery / Rule Discovery 산출물</p>
+
+  <h2>배경</h2>
+  <p>
+    현재 Rule Discovery 기능은 브라우저 inspect 결과, CRF page/item 정의, trigger 조건, query 관찰 결과를 함께 사용한다.
+    그러나 최근 개발은 notebook 생성 결과를 빠르게 개선하는 데 집중되어,
+    판정 로직이 <code>src/cdm_agent_client/crf/notebook.py</code> 내부에 많이 섞여 있다.
+  </p>
+  <p>
+    이 상태가 지속되면 page 매칭, trigger 후보 수집, rowLabel 정규화, boundary value 생성,
+    discovery result 출력이 한 파일에 얽히게 되어 유지보수와 과제별 확장이 어려워진다.
+  </p>
+
+  <h2>매칭 우선순위</h2>
+  <table>
+    <tr>
+      <th>1. 현재 browser pathname의 page_id</th>
+      <td>
+        현재 작업 대상 페이지를 확정하는 1차 기준이다.
+        예: <code>/.../VS/1</code>이면 현재 page는 <code>VS</code>로 본다.
+      </td>
+    </tr>
+    <tr>
+      <th>2. CRF 내부 crfPageId/pageId</th>
+      <td>
+        CRF 코드 내부의 실제 page 참조를 확인한다.
+        파일명이 아니라 <code>crfPageId: "VS"</code>, <code>pageId: "VS"</code> 같은 구조화된 값을 우선한다.
+      </td>
+    </tr>
+    <tr>
+      <th>3. itemId</th>
+      <td>
+        page 안의 실제 field/item을 연결한다.
+        예: <code>VS2SBP</code>, <code>VS2DBP</code>, <code>VS2TEMP</code>.
+      </td>
+    </tr>
+    <tr>
+      <th>4. item label / rowLabel</th>
+      <td>
+        CRF item label과 브라우저 inspect의 rowLabel을 연결한다.
+        bracket, visit prefix, 공백, 기호를 제거한 normalized match도 사용한다.
+        예: <code>[수술 전] 수축기 혈압</code>과 <code>수축기 혈압</code>.
+      </td>
+    </tr>
+    <tr>
+      <th>5. trigger issue.itemId</th>
+      <td>
+        query가 실제로 걸리는 target item을 확인한다.
+        <code>issue.itemId</code>가 현재 page item을 가리키면 관련 trigger 후보로 본다.
+      </td>
+    </tr>
+    <tr>
+      <th>6. trigger conditional left/right item ref</th>
+      <td>
+        query 조건에 참여하는 item을 확인한다.
+        <code>conditional.left</code>, <code>conditional.right</code> 안의 <code>crfPageId</code>, <code>itemId</code>를 재귀적으로 탐색한다.
+      </td>
+    </tr>
+    <tr>
+      <th>7. 파일명 page_XXX / trigger_XXX</th>
+      <td>
+        파일명은 보조 힌트로만 사용한다.
+        최종 판단은 코드 내부의 <code>pageId</code>, <code>crfPageId</code>, <code>itemId</code>, <code>issue</code>, <code>conditional</code> 기준으로 한다.
+      </td>
+    </tr>
+  </table>
+
+  <h2>판정 흐름</h2>
+  <table>
+    <tr>
+      <th>1. 현재 페이지 확정</th>
+      <td><code>agent.inspect().pathname</code>에서 현재 <code>page_id</code>를 추출한다.</td>
+    </tr>
+    <tr>
+      <th>2. page item 후보 수집</th>
+      <td>CRF page 정의에서 현재 page의 itemId, label, control type을 field map으로 만든다.</td>
+    </tr>
+    <tr>
+      <th>3. trigger 후보 수집</th>
+      <td>
+        현재 page와 직접 연결된 trigger뿐 아니라,
+        <code>D_&lt;page_id&gt;_*</code> id prefix,
+        <code>issue</code>, <code>conditional</code>, <code>bindTo/value/target</code> 참조까지 확장 검색한다.
+      </td>
+    </tr>
+    <tr>
+      <th>4. browser row 매칭</th>
+      <td>
+        browser inspect의 <code>structured_rows</code>와 CRF item label을 매칭한다.
+        exact match가 실패하면 bracket/visit prefix/공백/기호 제거 후 비교한다.
+      </td>
+    </tr>
+    <tr>
+      <th>5. candidate 생성 여부 결정</th>
+      <td>
+        trigger, item, browser row가 모두 연결되면 실행 가능한 candidate로 만든다.
+        trigger는 있으나 row가 없거나 조건이 복잡하면 manual review 후보로 남긴다.
+        browser row는 있으나 trigger가 없으면 browser-only fallback 후보로 둔다.
+      </td>
+    </tr>
+    <tr>
+      <th>6. boundary value 생성</th>
+      <td>
+        단순 비교식이면 query 발생값과 미발생값을 만든다.
+        예: <code>VS2SBP &lt; 80</code>이면 query 후보 <code>79</code>, 정상 후보 <code>80</code> 이상 값.
+      </td>
+    </tr>
+    <tr>
+      <th>7. loop 실행 및 관찰</th>
+      <td>
+        candidate 입력 후 Save를 실행하고, 저장 후 <code>agent.inspect()</code>로
+        <code>queryRows/queryCount</code>를 수집한다.
+      </td>
+    </tr>
+    <tr>
+      <th>8. Rule Discovery 결과 기록</th>
+      <td>
+        결과는 pass/fail이 아니라 <code>query_observed</code>, <code>no_query_observed</code>,
+        <code>skipped</code>, <code>blocked</code> 같은 observation으로 기록한다.
+      </td>
+    </tr>
+  </table>
+
+  <h2>현재 코드 위치</h2>
+  <table>
+    <tr>
+      <th>Notebook 생성</th>
+      <td><code>src/cdm_agent_client/crf/notebook.py</code></td>
+    </tr>
+    <tr>
+      <th>CRF scenario 생성</th>
+      <td><code>src/cdm_agent_client/crf/runner.py</code></td>
+    </tr>
+    <tr>
+      <th>trigger condition parse</th>
+      <td><code>src/cdm_agent_client/crf/parser.py</code></td>
+    </tr>
+    <tr>
+      <th>CRF source 추출</th>
+      <td><code>src/cdm_agent_client/crf/extractor.py</code></td>
+    </tr>
+    <tr>
+      <th>브라우저 현재 화면 inspect</th>
+      <td><code>extension/browser-runner-core.js</code> 및 daemon 배포본</td>
+    </tr>
+  </table>
+
+  <h2>문제점</h2>
+  <ul>
+    <li><code>notebook.py</code>가 notebook cell 생성뿐 아니라 row 매칭, fallback value, rule result shaping까지 담당하고 있다.</li>
+    <li>trigger 후보 수집 기준이 page direct match 중심에서 id prefix/issue/conditional 참조까지 확장되어야 하는데, 이 로직이 명시적인 모듈로 분리되어 있지 않다.</li>
+    <li>query message, boundary value, trigger reference 탐색이 여러 계층에 흩어질 가능성이 있다.</li>
+    <li>과제별 CRF 구조가 다를수록 notebook 생성기 안의 임시 보정이 늘어날 위험이 있다.</li>
+  </ul>
+
+  <h2>코드 분리 제안</h2>
+  <div class="decision">
+    Rule Discovery 관련 판정 로직은 <code>notebook.py</code>에서 분리하는 것이 맞다.
+    <code>notebook.py</code>는 최종 notebook cell을 조립하는 얇은 계층으로 유지하고,
+    page/trigger/item/row 매칭과 candidate 생성은 별도 모듈로 옮긴다.
+  </div>
+
+  <h3>권장 파일 구조</h3>
+  <table>
+    <tr>
+      <th><code>crf/rule_discovery.py</code></th>
+      <td>
+        Rule Discovery의 상위 orchestration 계층.
+        현재 page context, CRF spec, browser inspect를 받아 <code>RuleDiscoveryCandidate</code>와 결과 schema를 만든다.
+      </td>
+    </tr>
+    <tr>
+      <th><code>crf/trigger_matcher.py</code></th>
+      <td>
+        현재 page 기준 trigger 후보 수집.
+        <code>pageId/crfPageId</code>, <code>D_&lt;page&gt;_*</code> id prefix,
+        <code>issue</code>, <code>conditional</code>, <code>bindTo/value</code> 참조 탐색을 담당한다.
+      </td>
+    </tr>
+    <tr>
+      <th><code>crf/row_matcher.py</code></th>
+      <td>
+        CRF item label과 browser rowLabel 매칭.
+        bracket 제거, visit prefix 제거, 공백/기호 제거, option 포함 매칭 같은 label normalization을 담당한다.
+      </td>
+    </tr>
+    <tr>
+      <th><code>crf/value_planner.py</code></th>
+      <td>
+        trigger conditional을 바탕으로 query_expected/no_query_expected 입력값을 생성한다.
+        range boundary, option condition, missing query 후보 생성을 담당한다.
+      </td>
+    </tr>
+    <tr>
+      <th><code>crf/notebook.py</code></th>
+      <td>
+        위 모듈에서 생성한 candidate/result schema를 받아 notebook code cell과 markdown cell만 생성한다.
+        판정 로직은 최소화한다.
+      </td>
+    </tr>
+  </table>
+
+  <h2>권장 데이터 모델</h2>
+  <table>
+    <tr>
+      <th><code>RuleDiscoveryCandidate</code></th>
+      <td>
+        <code>DVS ID</code>, <code>page_id</code>, <code>item_id</code>, <code>item_label</code>,
+        <code>rule_type</code>, <code>rule_source</code>, <code>Specification</code>,
+        <code>Expected Result</code>, <code>steps</code>를 보관한다.
+      </td>
+    </tr>
+    <tr>
+      <th><code>RuleDiscoveryResult</code></th>
+      <td>
+        candidate 실행 후 <code>observed_query_count</code>, <code>observed_query_messages</code>,
+        <code>Result</code>, <code>review_decision</code>을 보관한다.
+      </td>
+    </tr>
+    <tr>
+      <th><code>TriggerMatch</code></th>
+      <td>
+        trigger가 현재 page와 연결된 이유를 내부적으로 보관한다.
+        예: <code>page_id</code>, <code>id_prefix</code>, <code>issue_ref</code>, <code>conditional_ref</code>.
+        본문 산출물 열로 노출할 필요는 없다.
+      </td>
+    </tr>
+  </table>
+
+  <h2>정리 방향</h2>
+  <ol>
+    <li>현재 <code>notebook.py</code> 안의 discovery candidate 생성 함수를 <code>rule_discovery.py</code>로 이동한다.</li>
+    <li>trigger 후보 수집은 <code>trigger_matcher.py</code>로 분리한다.</li>
+    <li>rowLabel 정규화와 browser row 매칭은 <code>row_matcher.py</code>로 분리한다.</li>
+    <li>경계값 생성과 fallback value는 <code>value_planner.py</code>로 분리한다.</li>
+    <li><code>notebook.py</code>는 candidate 목록을 받아 notebook loop 코드를 출력하는 역할만 남긴다.</li>
+  </ol>
+
+  <h2>요약</h2>
+  <p>
+    현재 Rule Discovery 기능은 동작 결과를 빠르게 만드는 단계였기 때문에
+    판정 로직이 notebook 생성 코드에 많이 들어가 있다.
+    앞으로 과제별 CRF 구조가 달라지는 상황을 감당하려면,
+    page/trigger/item/row/value 판정 로직을 별도 모듈로 분리하는 것이 맞다.
+  </p>
+  <p>
+    특히 trigger 후보 수집은 현재 page direct match만으로는 부족하므로,
+    <code>D_VS_*</code> 같은 trigger id prefix,
+    <code>issue.itemId</code>, <code>conditional.left/right</code> 참조를 모두 사용하는
+    명시적인 matcher 계층으로 정리해야 한다.
+  </p>
+</body>
+</html>

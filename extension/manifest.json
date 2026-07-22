@@ -1,14 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "CDM Agent",
+  "name": "CDMS Agent",
   "version": "0.1.0",
   "description": "Chrome extension bridge for local-first CDMS validation automation.",
-  "permissions": ["storage", "tabs", "activeTab", "sidePanel", "scripting"],
+  "permissions": ["storage", "tabs", "activeTab", "sidePanel", "scripting", "debugger"],
   "host_permissions": [
     "*://sbx.cdms.mavenclinical.com/*",
     "*://cdms.mavenclinical.com/*",
-    "http://127.0.0.1:3100/*",
-    "http://localhost:3100/*"
+    "http://127.0.0.1:3200/*",
+    "http://localhost:3200/*"
   ],
   "background": {
     "service_worker": "service-worker.js"
@@ -17,7 +17,7 @@
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "CDM Agent"
+    "default_title": "CDMS Agent"
   },
   "content_scripts": [
     {
